@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover, user-scalable=yes" />
+  <meta name="theme-color" content="#0F172A" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Grid Simulator" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="application-name" content="Grid Simulator" />
+  <title>Philippine Grid Frequency & Reserves Simulator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="mobile-app-shell">
+    
+    <!-- APP HEADER & REGION CONTROLS -->
+    <header class="app-header">
+      <div class="header-top-row">
+        <div class="app-brand">
+          <span class="app-brand-icon">⚡</span>
+          <div>
+            <h1 class="app-title">PhilGrid Live Simulator</h1>
+            <div class="app-subtitle-row">
+              <span id="grid-region-tagline" class="app-subtitle">Luzon Grid (7.5 GW Peak)</span>
+              <span class="app-dev-credit">• by Franz Xyrlo Tobias, PEE</span>
+            </div>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button id="btn-audio-toggle" class="btn btn-icon-round" title="Toggle Sound FX">🔊</button>
+          <button id="btn-reset-all" class="btn btn-reset-compact btn-reset-sim" title="Reset Simulation">↺ RESET</button>
+        </div>
+      </div>
+
+      <!-- REGIONAL GRID SWITCHER -->
+      <div class="region-nav-bar">
+        <button id="btn-grid-luzon" class="btn-region-tab active-region">🏝️ Luzon (7.5 GW)</button>
+        <button id="btn-grid-visayas" class="btn-region-tab">🏝️ Visayas (2.5 GW)</button>
+        <button id="btn-grid-mindanao" class="btn-region-tab">🏝️ Mindanao (2.4 GW)</button>
+      </div>
+
+      <!-- MAIN APP NAVIGATION TABS (1-SCREEN MOBILE SWITCHER) -->
+      <nav class="app-nav-tabs">
+        <button class="nav-tab-btn active-tab" data-tab="tab-sim">⚡ Grid Simulator</button>
+        <button class="nav-tab-btn" data-tab="tab-fleet">🧱 Fleet & Reserves</button>
+        <button class="nav-tab-btn" data-tab="tab-bill">💡 Bill Impact</button>
+        <button class="nav-tab-btn" data-tab="tab-log">📟 SCADA Log</button>
+      </nav>
+    </header>
+
+    <!-- MAIN TAB CONTENT CONTAINER -->
+    <main class="app-main-content">
+
+      <!-- ===================================================================
+           TAB 1: ⚡ GRID SIMULATOR (PRIMARY 1-SCREEN MOBILE EXPERIENCE)
+           =================================================================== -->
+      <section id="tab-sim" class="tab-pane active-pane">
+        
+        <!-- HERO TELEMETRY READOUT CARD -->
+        <div class="card telemetry-hero-card">
+          <div class="telemetry-main-row">
+            <div class="freq-readout-wrap">
+              <span class="telemetry-label">SYSTEM FREQUENCY</span>
+              <div id="metric-freq" class="hero-freq-display">60.000 Hz</div>
+              <div id="metric-freq-dev" class="hero-freq-dev">±0.000 Hz from 60 Hz Nominal</div>
+            </div>
+            <div class="status-pill-group">
+              <span id="grid-status-badge" class="badge badge-green">● BALANCED</span>
+              <span id="tripped-total-badge" class="badge badge-green">0 MW TRIPPED</span>
+            </div>
+          </div>
+
+          <!-- Quick Metrics Ribbon -->
+          <div class="telemetry-ribbon">
+            <div class="ribbon-item">
+              <span class="ribbon-lbl">RoCoF</span>
+              <span id="metric-rocof" class="ribbon-val">0.000 Hz/s</span>
+            </div>
+            <div class="ribbon-item">
+              <span class="ribbon-lbl">Net Balance</span>
+              <span id="metric-balance" class="ribbon-val" style="color: #10B981;">+0 MW</span>
+            </div>
+            <div class="ribbon-item">
+              <span class="ribbon-lbl">Live AS Cost</span>
+              <span id="metric-reserves-cost" class="ribbon-val" style="color: #F59E0B;">₱37.51M/hr</span>
+            </div>
+            <div class="ribbon-item">
+              <span class="ribbon-lbl">ERC Outage Fine</span>
+              <span id="metric-erc-penalty-rate" class="ribbon-val" style="color: #64748B;">₱0/hr</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- COMPACT OSCILLOSCOPE & FREQUENCY TRAJECTORY DUAL INSTRUMENTS -->
+        <div class="scope-grid-row">
+          
+          <!-- AC VOLTAGE WAVEFORM OSCILLOSCOPE -->
+          <div class="card scope-instrument-card">
+            <div class="scope-card-header">
+              <span class="scope-card-title">〰️ AC Waveform (v(t))</span>
+              <span id="scope-freq-display" class="scope-freq-badge">60.000 Hz</span>
+            </div>
+            <div class="scope-canvas-wrap">
+              <canvas id="waveformCanvas"></canvas>
+            </div>
+            <div class="scope-footer-labels">
+              <span>Wavelength expands &lt;60Hz</span>
+              <span>Compresses &gt;60Hz</span>
+            </div>
+          </div>
+
+          <!-- FREQUENCY TRAJECTORY CHART -->
+          <div class="card scope-instrument-card">
+            <div class="scope-card-header">
+              <span class="scope-card-title">📈 Frequency Trajectory</span>
+              <span class="scope-normal-badge">60 FPS Physics</span>
+            </div>
+            <div class="scope-canvas-wrap">
+              <canvas id="freqHistoryCanvas"></canvas>
+            </div>
+            <div class="scope-footer-labels">
+              <span style="color: #10B981;">🟢 Normal (59.9-60.1Hz)</span>
+              <span style="color: #EF4444;">🔴 UFLS (59.10Hz)</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- INSTANT POWER PLANT OUTAGE & TRIPPING CONSOLE -->
+        <div class="card outage-console-card">
+          <div class="card-mini-header">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 14px;">⚡</span>
+              <span class="card-mini-title">Plant Outages (Tap to Trip / Restore)</span>
+            </div>
+            <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
+              <button id="btn-random-trip" class="btn btn-xs btn-danger" style="background: #DC2626; color: #FFFFFF; font-weight: 800; padding: 3px 8px; box-shadow: 0 1px 4px rgba(220, 38, 38, 0.4);" title="Instantly trip a random synchronized power plant">
+                🎲 Random Trip
+              </button>
+              <button id="btn-start-peakers" class="btn btn-xs btn-outline" title="Toggle Auto Peaker Dispatch">
+                <span id="peaker-auto-dot" class="dot-indicator dot-green"></span>
+                <span id="peaker-auto-btn-label">Peakers: AUTO</span>
+              </button>
+              <button id="btn-clear-disturb" class="btn btn-xs btn-outline">Restore All</button>
+            </div>
+          </div>
+
+          <!-- Quick Plant Trip Button Grid (Dynamically Populated per Region) -->
+          <div id="regional-trip-buttons" class="plant-trip-grid">
+            <!-- Dynamically populated in app.js -->
+          </div>
+
+          <!-- Quick Emergency Load Shedding (MLD) Row -->
+          <div class="quick-mld-row">
+            <button id="btn-manual-mld-10" class="btn btn-xs btn-danger-soft">🚨 MLD 10%</button>
+            <button id="btn-manual-mld-20" class="btn btn-xs btn-danger-soft">🚨 MLD 20%</button>
+            <button id="btn-restore-mld" class="btn btn-xs btn-outline">🔄 Restore Shed</button>
+          </div>
+        </div>
+
+        <!-- REAL-TIME ACTIVE RESERVES RESPONSE TIERS -->
+        <div class="card reserves-monitor-card">
+          <div class="card-mini-header">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 14px;">🛡️</span>
+              <div>
+                <span class="card-mini-title">Active ASPA Reserves Reaction</span>
+                <div style="font-size: 9px; color: var(--text-muted); font-weight: 700;">PGC STATUTORY TIERS: PRIMARY • SECONDARY • TERTIARY</div>
+              </div>
+            </div>
+            <span class="badge badge-wesm">WESM CO-OPTIMIZED</span>
+          </div>
+
+          <div class="reserves-quick-grid">
+            <!-- Reserve 1: BESS FFR (Primary Reserve) -->
+            <div class="res-mini-box res-ffr">
+              <div class="res-mini-hdr">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 4px;">
+                    <span>🔋 BESS FFR</span>
+                    <span class="pgc-statutory-tag pgc-primary">PRIMARY</span>
+                  </div>
+                  <div id="res-plant-name-ffr" class="res-specific-plant-name">Masinloc BESS Phase 1 (150 MW)</div>
+                </div>
+                <span id="badge-ffr" class="badge badge-indigo">STANDBY</span>
+              </div>
+              
+              <!-- Mini Animation Stage: Draining Battery & Inverter -->
+              <div class="res-anim-stage">
+                <div class="mini-bess-unit">
+                  <div class="mini-battery-outer" title="BESS Battery Pack Cell">
+                    <div class="mini-battery-terminal"></div>
+                    <div class="mini-battery-inner">
+                      <div id="bess-level-fill" class="mini-battery-level" style="width: 94%;"></div>
+                      <span class="mini-battery-icon">⚡</span>
+                    </div>
+                  </div>
+                  <div class="mini-anim-info">
+                    <div id="bess-soc-text" class="mini-anim-val">94.0% SoC</div>
+                    <div id="inverter-pulse" class="mini-anim-sub">&lt;200ms FFR Standby</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="res-mini-meter">
+                <div id="meter-ffr" class="res-meter-fill bg-indigo" style="width: 0%;"></div>
+              </div>
+              <div class="res-mini-vals">
+                <span id="stat-ffr-val">0 MW</span>
+                <span id="stat-ffr-max">150 MW Cap</span>
+              </div>
+            </div>
+
+            <!-- Reserve 2: AGC Regulation Hydro (Secondary Reserve) -->
+            <div class="res-mini-box res-reg">
+              <div class="res-mini-hdr">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 4px;">
+                    <span>💧 AGC Reg</span>
+                    <span class="pgc-statutory-tag pgc-secondary">SECONDARY</span>
+                  </div>
+                  <div id="res-plant-name-reg" class="res-specific-plant-name">SNAP-Magat Hydro (200 MW)</div>
+                </div>
+                <span id="badge-reg" class="badge badge-blue">ACTIVE</span>
+              </div>
+
+              <!-- Mini Animation Stage: Rotating Francis Hydro Runner Turbine -->
+              <div class="res-anim-stage">
+                <div class="mini-runner-unit">
+                  <div class="mini-runner-frame" title="Hydro Francis Runner Turbine">
+                    <svg id="runner-reg" class="mini-runner-svg spinning-slow" viewBox="0 0 36 36">
+                      <circle cx="18" cy="18" r="16" fill="none" stroke="#0284C7" stroke-width="1.5" stroke-dasharray="2 2" opacity="0.6"/>
+                      <g transform="translate(18,18)">
+                        <circle cx="0" cy="0" r="4.5" fill="#0284C7" />
+                        <path d="M0 -4.5 C 5 -10, 11 -8, 14 -3 C 10 -4, 5 -4, 0 -4.5" fill="#38BDF8"/>
+                        <path d="M4.5 0 C 10 5, 8 11, 3 14 C 4 10, 4 5, 4.5 0" fill="#38BDF8"/>
+                        <path d="M0 4.5 C -5 10, -11 8, -14 3 C -10 4, -5 4, 0 4.5" fill="#38BDF8"/>
+                        <path d="M-4.5 0 C -10 -5, -8 -11, -3 -14 C -4 -10, -4 -5, -4.5 0" fill="#38BDF8"/>
+                        <path d="M3.2 -3.2 C 9 -4, 12 2, 12 7 C 9 4, 6 1, 3.2 -3.2" fill="#0284C7" opacity="0.8"/>
+                        <path d="M3.2 3.2 C 4 9, -2 12, -7 12 C -4 9, -1 6, 3.2 3.2" fill="#0284C7" opacity="0.8"/>
+                        <path d="M-3.2 3.2 C -9 4, -12 -2, -12 -7 C -9 -4, -6 -1, -3.2 3.2" fill="#0284C7" opacity="0.8"/>
+                        <path d="M-3.2 -3.2 C -4 -9, 2 -12, 7 -12 C 4 -9, 1 -6, -3.2 -3.2" fill="#0284C7" opacity="0.8"/>
+                      </g>
+                    </svg>
+                  </div>
+                  <div class="mini-anim-info">
+                    <div id="wicket-gate-text" class="mini-anim-val">Gate: 30%</div>
+                    <div class="mini-anim-sub">4s SCADA Loop</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="res-mini-meter">
+                <div id="meter-reg" class="res-meter-fill bg-blue" style="width: 0%;"></div>
+              </div>
+              <div class="res-mini-vals">
+                <span id="stat-reg-val">0 MW</span>
+                <span id="stat-reg-max">200 MW Cap</span>
+              </div>
+            </div>
+
+            <!-- Reserve 3: Spinning Droop (Primary Reserve) -->
+            <div class="res-mini-box res-spin">
+              <div class="res-mini-hdr">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 4px;">
+                    <span>⚡ Spinning Droop</span>
+                    <span class="pgc-statutory-tag pgc-primary">PRIMARY</span>
+                  </div>
+                  <div id="res-plant-name-spin" class="res-specific-plant-name">Pagbilao Coal Unit 1 (400 MW)</div>
+                </div>
+                <span id="badge-spin" class="badge badge-green">4% DROOP</span>
+              </div>
+
+              <!-- Mini Animation Stage: Rotating Steam Turbine Rotor -->
+              <div class="res-anim-stage">
+                <div class="mini-turbine-unit">
+                  <div class="mini-turbine-frame" title="Synchronized Thermal Steam Turbine">
+                    <svg id="rotor-spin" class="mini-rotor-svg spinning-idle" viewBox="0 0 36 36">
+                      <circle cx="18" cy="18" r="16" fill="none" stroke="#10B981" stroke-width="1.2" opacity="0.5"/>
+                      <g transform="translate(18,18)">
+                        <circle cx="0" cy="0" r="5" fill="#10B981"/>
+                        <line x1="0" y1="-5" x2="0" y2="-15" stroke="#34D399" stroke-width="2.5" stroke-linecap="round"/>
+                        <line x1="3.5" y1="-3.5" x2="10.6" y2="-10.6" stroke="#10B981" stroke-width="2" stroke-linecap="round"/>
+                        <line x1="5" y1="0" x2="15" y2="0" stroke="#34D399" stroke-width="2.5" stroke-linecap="round"/>
+                        <line x1="3.5" y1="3.5" x2="10.6" y2="10.6" stroke="#10B981" stroke-width="2" stroke-linecap="round"/>
+                        <line x1="0" y1="5" x2="0" y2="15" stroke="#34D399" stroke-width="2.5" stroke-linecap="round"/>
+                        <line x1="-3.5" y1="3.5" x2="-10.6" y2="10.6" stroke="#10B981" stroke-width="2" stroke-linecap="round"/>
+                        <line x1="-5" y1="0" x2="-15" y2="0" stroke="#34D399" stroke-width="2.5" stroke-linecap="round"/>
+                        <line x1="-3.5" y1="-3.5" x2="-10.6" y2="-10.6" stroke="#10B981" stroke-width="2" stroke-linecap="round"/>
+                        <circle cx="0" cy="0" r="2.2" fill="#0F172A"/>
+                      </g>
+                    </svg>
+                  </div>
+                  <div class="mini-anim-info">
+                    <div id="droop-valve-text" class="mini-anim-val">Valve: 15%</div>
+                    <div class="mini-anim-sub">0-5s Gov Droop</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="res-mini-meter">
+                <div id="meter-spin" class="res-meter-fill bg-green" style="width: 0%;"></div>
+              </div>
+              <div class="res-mini-vals">
+                <span id="stat-spin-val">0 MW</span>
+                <span id="stat-spin-max">400 MW Cap</span>
+              </div>
+            </div>
+
+            <!-- Reserve 4: Non-Spin Peakers (Tertiary Reserve) -->
+            <div class="res-mini-box res-nonspin">
+              <div class="res-mini-hdr">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 4px;">
+                    <span>🚢 Fast Peakers</span>
+                    <span class="pgc-statutory-tag pgc-tertiary">TERTIARY</span>
+                  </div>
+                  <div id="res-plant-name-nonspin" class="res-specific-plant-name">Limay & Malaya Peakers (300 MW)</div>
+                </div>
+                <span id="badge-nonspin" class="badge badge-amber">AUTO</span>
+              </div>
+
+              <!-- Mini Animation Stage: Twin Reciprocating Pistons with Sparks -->
+              <div class="res-anim-stage">
+                <div class="mini-engine-unit">
+                  <div class="mini-piston-block" title="Fast-Start Marine Diesel Reciprocating Engine">
+                    <!-- Cylinder 1 -->
+                    <div class="mini-cylinder">
+                      <div id="spark-1" class="mini-spark">💥</div>
+                      <div class="mini-chamber">
+                        <div id="piston-1" class="mini-piston"></div>
+                        <div class="mini-conrod"></div>
+                      </div>
+                    </div>
+                    <!-- Cylinder 2 -->
+                    <div class="mini-cylinder">
+                      <div id="spark-2" class="mini-spark">💥</div>
+                      <div class="mini-chamber">
+                        <div id="piston-2" class="mini-piston"></div>
+                        <div class="mini-conrod"></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mini-anim-info">
+                    <div id="peaker-rpm-text" class="mini-anim-val">0 RPM (STBY)</div>
+                    <div class="mini-anim-sub">&lt;15m Quick Start</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="res-mini-meter">
+                <div id="meter-nonspin" class="res-meter-fill bg-amber" style="width: 0%;"></div>
+              </div>
+              <div class="res-mini-vals">
+                <span id="stat-nonspin-val">0 MW</span>
+                <span id="stat-nonspin-max">300 MW Cap</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- DYNAMIC VERTICAL BAR GRAPH: GENERATION & RESERVES DISPATCH STACK -->
+        <div class="card vertical-stack-card">
+          <div class="card-mini-header">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 14px;">📊</span>
+              <span class="card-mini-title">Generation & ASPA Reserves Vertical Stack</span>
+            </div>
+            <span id="stack-total-mw-badge" class="badge badge-wesm">7,500 MW Total</span>
+          </div>
+
+          <div class="vert-stack-chart-wrap">
+            
+            <!-- 1. Baseload -->
+            <div class="vert-col">
+              <span id="vbar-val-baseload" class="vert-val">6832M</span>
+              <div class="vert-track">
+                <div id="vbar-fill-baseload" class="vert-fill bg-slate" style="height: 90%;"></div>
+              </div>
+              <span class="vert-lbl">🏭 Base</span>
+              <span id="vbar-sub-baseload" class="vert-sub">Dinginin</span>
+            </div>
+
+            <!-- 2. Mid-Merit -->
+            <div class="vert-col">
+              <span id="vbar-val-midmerit" class="vert-val">450M</span>
+              <div class="vert-track">
+                <div id="vbar-fill-midmerit" class="vert-fill bg-amber-mid" style="height: 75%;"></div>
+              </div>
+              <span class="vert-lbl">🔥 Mid</span>
+              <span id="vbar-sub-midmerit" class="vert-sub">Ilijan</span>
+            </div>
+
+            <!-- 3. Peaking -->
+            <div class="vert-col">
+              <span id="vbar-val-peaking" class="vert-val">0M</span>
+              <div class="vert-track">
+                <div id="vbar-fill-peaking" class="vert-fill bg-red" style="height: 0%;"></div>
+              </div>
+              <span class="vert-lbl">🚢 Peak</span>
+              <span id="vbar-sub-peaking" class="vert-sub">Limay</span>
+            </div>
+
+            <!-- 4. FFR (BESS) -->
+            <div class="vert-col">
+              <span id="vbar-val-ffr" class="vert-val">0M</span>
+              <div class="vert-track">
+                <div id="vbar-fill-ffr" class="vert-fill bg-indigo" style="height: 0%;"></div>
+              </div>
+              <span class="vert-lbl">🔋 FFR</span>
+              <span id="vbar-sub-ffr" class="vert-sub">Masinloc</span>
+            </div>
+
+            <!-- 5. AGC Reg (Hydro) -->
+            <div class="vert-col">
+              <span id="vbar-val-reg" class="vert-val">0M</span>
+              <div class="vert-track">
+                <div id="vbar-fill-reg" class="vert-fill bg-blue" style="height: 0%;"></div>
+              </div>
+              <span class="vert-lbl">💧 Reg</span>
+              <span id="vbar-sub-reg" class="vert-sub">Magat</span>
+            </div>
+
+            <!-- 6. Spinning Droop -->
+            <div class="vert-col">
+              <span id="vbar-val-spin" class="vert-val">0M</span>
+              <div class="vert-track">
+                <div id="vbar-fill-spin" class="vert-fill bg-green" style="height: 0%;"></div>
+              </div>
+              <span class="vert-lbl">⚡ Spin</span>
+              <span id="vbar-sub-spin" class="vert-sub">Pagbilao</span>
+            </div>
+
+            <!-- 7. Non-Spin Peakers -->
+            <div class="vert-col">
+              <span id="vbar-val-nonspin" class="vert-val">0M</span>
+              <div class="vert-track">
+                <div id="vbar-fill-nonspin" class="vert-fill bg-amber" style="height: 0%;"></div>
+              </div>
+              <span class="vert-lbl">🚢 NonSpin</span>
+              <span id="vbar-sub-nonspin" class="vert-sub">Malaya</span>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- LIVE WESM DISPATCH RATIONALE BANNER -->
+        <div id="dispatch-reason-banner" class="dispatch-reason-banner">
+          <div class="dispatch-reason-icon">💡</div>
+          <div style="flex: 1;">
+            <div id="dispatch-reason-title" class="dispatch-reason-title">System Status: Steady-State Baseline Operation</div>
+            <div id="dispatch-reason-text" class="dispatch-reason-text">
+              Baseload fleet meets continuous electrical load. Reserves remain synchronized on standby readiness under WESM co-optimization rules.
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ===================================================================
+           TAB 2: 🧱 POWER PLANTS & RESERVES SPECIFICATIONS
+           =================================================================== -->
+      <section id="tab-fleet" class="tab-pane" style="display: none;">
+        
+        <!-- Capacity Stack Overview Bar -->
+        <div class="card" style="margin-bottom: 12px;">
+          <div class="card-mini-header">
+            <h2 class="card-mini-title">🧱 Generation & Reserve Stack Capacity</h2>
+            <span id="wesm-region-badge" class="badge badge-wesm">WESM RTM</span>
+          </div>
+          <div class="capacity-stack-bar" id="capacityStackBar">
+            <div id="seg-baseload" class="cap-segment" style="background: #334155; width: 52%;">
+              <span class="cap-seg-label"><span class="cap-seg-name">BASELOAD</span></span>
+            </div>
+            <div id="seg-midmerit" class="cap-segment" style="background: #d97706; width: 14%;">
+              <span class="cap-seg-label"><span class="cap-seg-name">MID-MERIT</span></span>
+            </div>
+            <div id="seg-peaking" class="cap-segment" style="background: #dc2626; width: 6%;">
+              <span class="cap-seg-label"><span class="cap-seg-name">PEAK</span></span>
+            </div>
+            <div id="seg-ffr" class="cap-segment" style="background: #6366f1; width: 4%;"></div>
+            <div id="seg-reg" class="cap-segment" style="background: #0284c7; width: 6%;"></div>
+            <div id="seg-spin" class="cap-segment" style="background: #10b981; width: 10%;"></div>
+            <div id="seg-nonspin" class="cap-segment" style="background: #f59e0b; width: 8%;"></div>
+            <div id="demandMarker" class="demand-marker-line" style="left: 72%;"></div>
+          </div>
+        </div>
+
+        <!-- 7 CAPACITY BLOCK CARDS -->
+        <div class="fleet-cards-list" id="capacity-block-grid">
+          
+          <!-- Block 1: Baseload -->
+          <div class="block-card" id="card-plant-baseload" data-category="generation" style="border-top-color: #334155;">
+            <div class="block-header">
+              <span class="block-title">Baseload Fleet</span>
+              <span class="block-badge" style="background: #f1f5f9; color: #334155;">ONLINE</span>
+            </div>
+            <div id="plant-name-baseload" class="block-plant-name">🏭 GNPower Dinginin (668MW)</div>
+            <div id="plant-erc-baseload" class="block-erc-pill">WESM: Energy Merit Order (24/7)</div>
+            
+            <div class="block-stat-row">
+              <span>Active Output:</span>
+              <span id="stat-baseload-val" class="block-stat-val">7,500 MW</span>
+            </div>
+            <div class="block-stat-row">
+              <span>Hourly Rate:</span>
+              <span id="cost-rate-baseload" class="block-stat-val">₱36.38M / hr</span>
+            </div>
+
+            <div class="card-action-btns-row">
+              <button id="btn-trip-card-baseload" class="btn btn-sm btn-danger btn-trip-card-unit" data-unit="baseload">
+                ⚡ CLICK TO TRIP
+              </button>
+              <button class="btn-show-legal btn btn-sm btn-outline" data-plant="baseload" onclick="event.stopPropagation(); window.openPlantModal('baseload');">
+                ⚖️ Legal Basis
+              </button>
+            </div>
+          </div>
+
+          <!-- Block 2: Mid-Merit -->
+          <div class="block-card" id="card-plant-midmerit" data-category="generation" style="border-top-color: #f59e0b;">
+            <div class="block-header">
+              <span class="block-title">Mid-Merit Fleet</span>
+              <span id="badge-midmerit" class="block-badge" style="background: #fef3c7; color: #b45309;">RAMPING</span>
+            </div>
+            <div id="plant-name-midmerit" class="block-plant-name">🔥 Ilijan CCGT Gas (1,200MW)</div>
+            <div id="plant-erc-midmerit" class="block-erc-pill">WESM: Load-Following Ramping</div>
+            
+            <div class="block-stat-row">
+              <span>Active Output:</span>
+              <span id="stat-midmerit-val" class="block-stat-val">600 MW</span>
+            </div>
+            <div class="block-stat-row">
+              <span>Hourly Rate:</span>
+              <span id="cost-rate-midmerit" class="block-stat-val">₱600,000 / hr</span>
+            </div>
+
+            <div class="card-action-btns-row">
+              <button id="btn-trip-card-midmerit" class="btn btn-sm btn-danger btn-trip-card-unit" data-unit="midmerit">
+                ⚡ CLICK TO TRIP
+              </button>
+              <button class="btn-show-legal btn btn-sm btn-outline" data-plant="midmerit" onclick="event.stopPropagation(); window.openPlantModal('midmerit');">
+                ⚖️ Legal Basis
+              </button>
+            </div>
+          </div>
+
+          <!-- Block 3: Peaking -->
+          <div class="block-card" id="card-plant-peaking" data-category="generation" style="border-top-color: #ef4444;">
+            <div class="block-header">
+              <span class="block-title">Peaking Fleet</span>
+              <span id="badge-peaking" class="block-badge" style="background: #fef2f2; color: #ef4444;">STANDBY</span>
+            </div>
+            <div id="plant-name-peaking" class="block-plant-name">🚢 Limay & Malaya Peakers (300MW)</div>
+            <div id="plant-erc-peaking" class="block-erc-pill">WESM: Peak Shaving / Fast Start</div>
+            
+            <div class="block-stat-row">
+              <span>Dispatched:</span>
+              <span id="stat-peaking-val" class="block-stat-val">0 MW</span>
+            </div>
+            <div class="block-stat-row">
+              <span>Hourly Rate:</span>
+              <span id="cost-rate-peaking" class="block-stat-val">₱0 / hr</span>
+            </div>
+
+            <div class="card-action-btns-row">
+              <button id="btn-trip-card-peaking" class="btn btn-sm btn-danger btn-trip-card-unit" data-unit="peaking">
+                ⚡ CLICK TO TRIP
+              </button>
+              <button class="btn-show-legal btn btn-sm btn-outline" data-plant="peaking" onclick="event.stopPropagation(); window.openPlantModal('peaking');">
+                ⚖️ Legal Basis
+              </button>
+            </div>
+          </div>
+
+          <!-- Block 4: BESS FFR -->
+          <div class="block-card" id="card-plant-ffr" data-category="reserves" style="border-top-color: #6366f1;">
+            <div class="block-header">
+              <span class="block-title">Fast Frequency (FFR)</span>
+              <span class="block-badge" style="background: #eef2ff; color: #6366f1;">PRIMARY</span>
+            </div>
+            <div id="plant-name-ffr" class="block-plant-name">🔋 Masinloc BESS (MPCL)</div>
+            <div id="plant-erc-ffr" class="block-erc-pill">WESM: Sub-Second Response (&lt;200ms)</div>
+            
+            <div class="block-stat-row">
+              <span>Injected:</span>
+              <span id="stat-ffr-val-card" class="block-stat-val">0 MW</span>
+            </div>
+            <div class="block-stat-row">
+              <span>Hourly Rate:</span>
+              <span id="cost-rate-ffr" class="block-stat-val">₱281,250 / hr</span>
+            </div>
+
+            <div class="card-action-btns-row">
+              <button id="btn-trip-card-ffr" class="btn btn-sm btn-danger btn-trip-card-unit" data-unit="ffr">
+                ⚡ CLICK TO TRIP
+              </button>
+              <button class="btn-show-legal btn btn-sm btn-outline" data-plant="ffr" onclick="event.stopPropagation(); window.openPlantModal('ffr');">
+                ⚖️ Legal Basis
+              </button>
+            </div>
+          </div>
+
+          <!-- Block 5: AGC Regulation -->
+          <div class="block-card" id="card-plant-reg" data-category="reserves" style="border-top-color: #0284c7;">
+            <div class="block-header">
+              <span class="block-title">AGC Regulation (RR)</span>
+              <span class="block-badge" style="background: #f0f9ff; color: #0284c7;">SECONDARY</span>
+            </div>
+            <div id="plant-name-reg" class="block-plant-name">💧 SNAP-Magat Hydro</div>
+            <div id="plant-erc-reg" class="block-erc-pill">WESM: 4-Second Closed Loop</div>
+            
+            <div class="block-stat-row">
+              <span>Ramped:</span>
+              <span id="stat-reg-val-card" class="block-stat-val">0 MW</span>
+            </div>
+            <div class="block-stat-row">
+              <span>Hourly Rate:</span>
+              <span id="cost-rate-reg" class="block-stat-val">₱272,222 / hr</span>
+            </div>
+
+            <div class="card-action-btns-row">
+              <button id="btn-trip-card-reg" class="btn btn-sm btn-danger btn-trip-card-unit" data-unit="reg">
+                ⚡ CLICK TO TRIP
+              </button>
+              <button class="btn-show-legal btn btn-sm btn-outline" data-plant="reg" onclick="event.stopPropagation(); window.openPlantModal('reg');">
+                ⚖️ Legal Basis
+              </button>
+            </div>
+          </div>
+
+          <!-- Block 6: Spinning Droop -->
+          <div class="block-card" id="card-plant-spin" data-category="reserves" style="border-top-color: #10b981;">
+            <div class="block-header">
+              <span class="block-title">Spinning Reserve (CR-S)</span>
+              <span class="block-badge" style="background: #ecfdf5; color: #10b981;">4% DROOP</span>
+            </div>
+            <div id="plant-name-spin" class="block-plant-name">⚡ Pagbilao Coal (TLI)</div>
+            <div id="plant-erc-spin" class="block-erc-pill">WESM: Synchronized Headroom</div>
+            
+            <div class="block-stat-row">
+              <span>Governor MW:</span>
+              <span id="stat-spin-val-card" class="block-stat-val">0 MW</span>
+            </div>
+            <div class="block-stat-row">
+              <span>Hourly Rate:</span>
+              <span id="cost-rate-spin" class="block-stat-val">₱330,556 / hr</span>
+            </div>
+
+            <div class="card-action-btns-row">
+              <button id="btn-trip-card-spin" class="btn btn-sm btn-danger btn-trip-card-unit" data-unit="spin">
+                ⚡ CLICK TO TRIP
+              </button>
+              <button class="btn-show-legal btn btn-sm btn-outline" data-plant="spin" onclick="event.stopPropagation(); window.openPlantModal('spin');">
+                ⚖️ Legal Basis
+              </button>
+            </div>
+          </div>
+
+          <!-- Block 7: Non-Spinning Peakers -->
+          <div class="block-card" id="card-plant-nonspin" data-category="reserves" style="border-top-color: #f59e0b;">
+            <div class="block-header">
+              <span class="block-title">Non-Spin Peakers (CR-NS)</span>
+              <span class="block-badge" style="background: #fffbeb; color: #f59e0b;">TERTIARY</span>
+            </div>
+            <div id="plant-name-nonspin" class="block-plant-name">🚢 Malaya / Limay Peakers</div>
+            <div id="plant-erc-nonspin" class="block-erc-pill">WESM: Tertiary Peaker Stack</div>
+            
+            <div class="block-stat-row">
+              <span>Dispatched:</span>
+              <span id="stat-nonspin-val-card" class="block-stat-val">0 MW</span>
+            </div>
+            <div class="block-stat-row">
+              <span>Hourly Rate:</span>
+              <span id="cost-rate-nonspin" class="block-stat-val">₱258,333 / hr</span>
+            </div>
+
+            <div class="card-action-btns-row">
+              <button id="btn-trip-card-nonspin" class="btn btn-sm btn-danger btn-trip-card-unit" data-unit="nonspin">
+                ⚡ CLICK TO TRIP
+              </button>
+              <button class="btn-show-legal btn btn-sm btn-outline" data-plant="nonspin" onclick="event.stopPropagation(); window.openPlantModal('nonspin');">
+                ⚖️ Legal Basis
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ===================================================================
+           TAB 3: 💡 RESIDENTIAL BILL IMPACT CALCULATOR
+           =================================================================== -->
+      <section id="tab-bill" class="tab-pane" style="display: none;">
+        <div class="card" style="border-left: 4px solid var(--rabbit-orange);">
+          <div class="card-mini-header" style="flex-wrap: wrap; gap: 6px;">
+            <div>
+              <h2 class="card-mini-title">💡 Electricity Bill Impact (<span id="bill-kwh-display">200 kWh</span>)</h2>
+              <span style="font-size: 10px; color: #64748b;">ERC Pass-Through: WESM Spot & AS Reserves</span>
+            </div>
+
+            <!-- Consumption Switcher -->
+            <div class="bill-tier-switcher">
+              <button class="btn-bill-tier" data-kwh="100">100k</button>
+              <button class="btn-bill-tier active-tier" data-kwh="200">200k</button>
+              <button class="btn-bill-tier" data-kwh="300">300k</button>
+              <button class="btn-bill-tier" data-kwh="400">400k</button>
+              <button class="btn-bill-tier" data-kwh="500">500k</button>
+            </div>
+          </div>
+
+          <!-- Hero Bill Impact Cards -->
+          <div class="grid-2" style="margin-top: 8px; margin-bottom: 12px; gap: 8px;">
+            <div class="metric-box" style="background: #fff1f2; border-color: #fecdd3;">
+              <div class="metric-label" style="color: #be123c;">Est. Monthly Increase</div>
+              <div id="bill-increase-total" class="metric-value" style="color: #e11d48; font-size: 20px;">+₱0.00 / mo</div>
+              <div id="bill-increase-pct" class="metric-sub" style="color: #9f1239; font-weight: 700;">+0.0% vs Baseline</div>
+            </div>
+
+            <div class="metric-box">
+              <div class="metric-label">New Total Bill</div>
+              <div id="bill-total-amount" class="metric-value" style="font-size: 20px;">₱2,320.00</div>
+              <div id="bill-base-amount" class="metric-sub">Base: ₱2,320.00 (@ ₱11.60/kWh)</div>
+            </div>
+          </div>
+
+          <div class="grid-2" style="margin-bottom: 12px; gap: 8px;">
+            <div class="metric-box">
+              <div class="metric-label">Effective Tariff</div>
+              <div id="bill-effective-rate" class="metric-value" style="color: #0284c7; font-size: 16px;">₱11.6000 / kWh</div>
+              <div id="bill-rate-diff" class="metric-sub">+₱0.0000/kWh surge</div>
+            </div>
+
+            <div class="metric-box" style="background: #f5f7ff; border-color: #e0e7ff;">
+              <div class="metric-label" style="color: #4338ca;">Live AS Reserve Charge</div>
+              <div id="bill-as-rate" class="metric-value" style="color: #4f46e5; font-size: 16px;">₱0.1420 / kWh</div>
+              <div id="bill-as-monthly" class="metric-sub">₱28.40/mo for 200 kWh</div>
+            </div>
+          </div>
+
+          <!-- Itemized Breakdown Table -->
+          <div class="bill-breakdown-container">
+            <div class="bill-table-wrap">
+              <table class="bill-impact-table">
+                <thead>
+                  <tr>
+                    <th>Unbundled Component</th>
+                    <th>Base Rate</th>
+                    <th>Current Surge</th>
+                    <th>Monthly Impact</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>WESM Generation</strong></td>
+                    <td>₱6.5500/kWh</td>
+                    <td id="table-gen-rate" style="font-family: var(--font-mono);">₱6.5500/kWh</td>
+                    <td id="table-gen-monthly" style="font-family: var(--font-mono);">₱1,310.00</td>
+                  </tr>
+                  <tr>
+                    <td><strong>AS Reserve Surcharge</strong></td>
+                    <td>₱0.1420/kWh</td>
+                    <td id="table-as-rate" style="font-family: var(--font-mono); color: #4f46e5;">₱0.1420/kWh</td>
+                    <td id="table-as-monthly" style="font-family: var(--font-mono); color: #4f46e5;">₱28.40</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Distribution (Meralco)</strong></td>
+                    <td>₱3.6500/kWh</td>
+                    <td>₱3.6500/kWh</td>
+                    <td>₱730.00</td>
+                  </tr>
+                  <tr>
+                    <td><strong>VAT & Taxes (12%)</strong></td>
+                    <td>₱1.2580/kWh</td>
+                    <td id="table-tax-rate">₱1.2580/kWh</td>
+                    <td id="table-tax-monthly">₱251.60</td>
+                  </tr>
+                  <tr class="bill-total-row">
+                    <td><strong>TOTAL ALL-IN TARIFF</strong></td>
+                    <td>₱11.6000/kWh</td>
+                    <td id="table-total-rate" style="color: #e11d48; font-weight: 800;">₱11.6000/kWh</td>
+                    <td id="table-total-monthly" style="color: #e11d48; font-weight: 800;">₱2,320.00</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================================================================
+           TAB 4: 📟 SCADA EMS & WESM DISPATCH TERMINAL LOG
+           =================================================================== -->
+      <section id="tab-log" class="tab-pane" style="display: none;">
+        <div class="card" style="margin-bottom: 0;">
+          <div class="card-mini-header">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="dot-indicator dot-green"></span>
+              <span class="card-mini-title">SCADA EMS & WESM Dispatch Terminal</span>
+            </div>
+            <button id="btn-clear-terminal" class="btn btn-xs btn-outline">Clear Log</button>
+          </div>
+
+          <div class="terminal-container">
+            <div class="terminal-header-bar">
+              <span>NGCP EMS SCADA TELEMETRY // WESM RTM AUDIT STREAM</span>
+              <span id="terminal-clock">T+0.0s</span>
+            </div>
+            <div id="terminal-body" class="terminal-body">
+              <!-- Live log lines stream dynamically -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- SUBTLE FOOTER DEVELOPER CREDIT -->
+    <footer class="app-footer">
+      <span>Philippine National Grid Reserves & WESM Simulator</span>
+      <span class="footer-dot">•</span>
+      <span class="footer-author">Developed by <strong>Franz Xyrlo Tobias, PEE</strong></span>
+    </footer>
+
+  </div>
+
+  <!-- MODAL: ERC APPROVED ASPA & WESM CONTRACT DOSSIER -->
+  <div id="plantDossierModal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-drag-bar"></div>
+      <div class="modal-header">
+        <div>
+          <div class="badge badge-erc" style="margin-bottom: 4px;">OFFICIAL ERC ASPA DOCKET & WESM ROLE</div>
+          <h3 id="modal-plant-name" class="modal-title">Power Plant Name</h3>
+        </div>
+        <button id="modal-close-btn" class="modal-close-btn">&times;</button>
+      </div>
+      
+      <div id="modal-body-content">
+        <!-- Dynamically rendered in app.js -->
+      </div>
+
+      <div style="margin-top: 14px; text-align: right;">
+        <button id="modal-ok-btn" class="btn btn-primary" style="width: 100%;">Close Dossier</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="data.js"></script>
+  <script src="simulation-engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
