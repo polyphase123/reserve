@@ -246,20 +246,28 @@ class GridPhysicsSimulator {
     const currentEffectiveLoad = Math.max(100, this.totalLoad - this.mldTrippedLoad + totalStochasticNoiseMW);
     
     // 1. Calculate Fast Frequency Response (FFR / BESS)
+    const isFfrTripped = this.activeOutages.some(p => (p.id || "").toLowerCase().includes("bess") || (p.id || "").toLowerCase().includes("masinloc_bess"));
     const freqDrop = this.nominalFreq - this.freq;
+    
+    // Dynamic Battery SoC Available Discharge Factor:
+    // Full 100% capacity when SoC >= 30%; scales down smoothly between 30% and 10%; cut-off at 10% (empty)
+    const socAvailableFactor = this.bessSoC <= 10.0 ? 0.0 : Math.min(1.0, Math.max(0.0, (this.bessSoC - 10.0) / 20.0));
+    const effectiveFfrCap = (this.ffrActive && !isFfrTripped) ? (this.ffrCapacity * socAvailableFactor) : 0;
+
     let targetFFR = 0;
-    if (this.ffrActive && freqDrop > this.ffrThreshold) {
-      targetFFR = Math.min(this.ffrCapacity, (freqDrop / 0.5) * this.ffrCapacity);
+    if (effectiveFfrCap > 0 && freqDrop > this.ffrThreshold) {
+      targetFFR = Math.min(effectiveFfrCap, (freqDrop / 0.5) * effectiveFfrCap);
     }
     this.ffrDeployed += (targetFFR - this.ffrDeployed) * (this.dt / Math.max(0.05, this.ffrTimeConstant));
-    this.ffrDeployed = Math.max(0, Math.min(this.ffrCapacity, this.ffrDeployed));
+    this.ffrDeployed = Math.max(0, Math.min(effectiveFfrCap, this.ffrDeployed));
 
     // Dynamic Battery State of Charge (SoC %) physics
-    if (this.ffrDeployed > 1) {
+    if (this.ffrDeployed > 0.5) {
       const dischargeRatePerSec = (this.ffrDeployed / Math.max(10, this.ffrCapacity)) * 0.45;
-      this.bessSoC = Math.max(5.0, this.bessSoC - dischargeRatePerSec * this.dt);
+      this.bessSoC = Math.max(10.0, this.bessSoC - dischargeRatePerSec * this.dt);
     } else if (Math.abs(freqDrop) < 0.05 && this.bessSoC < 95.0) {
-      this.bessSoC = Math.min(95.0, this.bessSoC + 0.08 * this.dt);
+      // Float recharging when grid is stabilized
+      this.bessSoC = Math.min(95.0, this.bessSoC + 0.12 * this.dt);
     }
 
     // 2. Calculate Primary Governor Droop Response (CR-Spinning)

@@ -629,13 +629,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // 1. BESS FFR & Draining Battery
     if (typeof sim.bessSoC === "undefined") sim.bessSoC = 94.0;
     const ffrCap = sim.ffrCapacity || 150;
-    if (state.ffrDeployed > 0.5) {
-      // Drain battery proportional to injection
-      sim.bessSoC = Math.max(12.0, sim.bessSoC - (state.ffrDeployed / ffrCap) * 0.08);
-    } else if (sim.bessSoC < 96.0) {
-      // Slow float recharge
-      sim.bessSoC = Math.min(96.0, sim.bessSoC + 0.02);
-    }
 
     const meterFfr = document.getElementById("meter-ffr");
     const statFfrVal = document.getElementById("stat-ffr-val");
@@ -649,7 +642,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (statFfrVal) statFfrVal.textContent = Math.round(state.ffrDeployed) + " MW";
     if (statFfrMax) statFfrMax.textContent = ffrCap + " MW Cap";
     if (badgeFfr) {
-      if (state.ffrDeployed > 10) {
+      if (sim.bessSoC <= 10.5) {
+        badgeFfr.textContent = "DEPLETED";
+      } else if (state.ffrDeployed > 5) {
         badgeFfr.textContent = "DISCHARGING";
       } else if (sim.bessSoC < 95.0) {
         badgeFfr.textContent = "CHARGING";
@@ -670,7 +665,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (bessSocText) bessSocText.textContent = `${sim.bessSoC.toFixed(1)}% SoC`;
     if (inverterPulse) {
-      if (state.ffrDeployed > 10) {
+      if (sim.bessSoC <= 10.5) {
+        inverterPulse.textContent = "⚠️ BESS Depleted";
+        inverterPulse.style.color = "#EF4444";
+      } else if (state.ffrDeployed > 5) {
         inverterPulse.textContent = `⚡ Discharging +${Math.round(state.ffrDeployed)}M`;
         inverterPulse.style.color = "#818CF8";
       } else if (sim.bessSoC < 95.0) {
