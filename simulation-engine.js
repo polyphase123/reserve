@@ -161,20 +161,28 @@ class GridPhysicsSimulator {
     this.activeContingency = null;
   }
 
-  // Manual Load Dropping (MLD) triggered by System Operator
-  triggerManualMLD(pct = 0.15) {
+  // Automatic Load Dropping (ALD / UFLS) & Manual Load Shedding
+  triggerALD(stage = 1) {
     this.mldTriggered = true;
-    this.mldStage = "MANUAL";
+    this.mldStage = stage;
+    const stagePcts = { 1: 0.10, 2: 0.20, 3: 0.30 };
+    const pct = stagePcts[stage] || (typeof stage === "number" ? stage : 0.10);
     this.mldPercentage = pct;
     this.mldTrippedLoad = this.totalLoad * pct;
     this.history.events.push({
       time: this.time,
-      text: `🚨 MANUAL LOAD DROPPING (MLD): Operator shed ${(pct * 100).toFixed(0)}% load (-${this.mldTrippedLoad.toFixed(0)} MW) across DUs/ECs!`
+      text: `🚨 AUTOMATIC LOAD DROPPING (ALD Stage ${stage}): Shed ${(pct * 100).toFixed(0)}% grid demand (-${this.mldTrippedLoad.toFixed(0)} MW) to arrest frequency decay!`
     });
   }
 
-  // Restore Load Shed (Clear MLD / UFLS)
-  restoreMLD() {
+  // Manual Load Dropping (MLD) / ALD Trigger
+  triggerManualMLD(pct = 0.15) {
+    const stage = pct >= 0.20 ? 2 : 1;
+    this.triggerALD(stage);
+  }
+
+  // Restore Dropped Load (Reclose Feeders)
+  restoreALD() {
     this.mldTriggered = false;
     this.mldStage = 0;
     this.mldPercentage = 0;
@@ -182,8 +190,12 @@ class GridPhysicsSimulator {
     this.lastMldLoggedStage = 0;
     this.history.events.push({
       time: this.time,
-      text: `✓ LOAD RESTORED: All MLD/UFLS feeder breakers reclosed across all distribution utilities.`
+      text: `✓ DEMAND RESTORED: All Automatic Load Dropping (ALD / UFLS) feeder breakers reclosed across distribution utilities.`
     });
+  }
+
+  restoreMLD() {
+    this.restoreALD();
   }
 
   // Peaker Control Methods

@@ -84,11 +84,11 @@ html, body {
   background: #1E293B;
   border: 1px solid #334155;
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
+  padding: 6px 8px;
   box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .header-top-row {
@@ -106,21 +106,21 @@ html, body {
 }
 
 .app-brand-icon {
-  font-size: 16px;
+  font-size: 14px;
   background: var(--rabbit-orange);
   color: #FFFFFF;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 6px rgba(255, 77, 6, 0.4);
+  box-shadow: 0 2px 5px rgba(255, 77, 6, 0.35);
   flex-shrink: 0;
 }
 
 .app-title {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 800;
   color: #FFFFFF;
   letter-spacing: -0.01em;
@@ -140,14 +140,14 @@ html, body {
 }
 
 .app-subtitle {
-  font-size: 9.5px;
+  font-size: 9px;
   color: #94A3B8;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .app-dev-credit {
-  font-size: 8.5px;
+  font-size: 8px;
   color: #64748B;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -157,18 +157,19 @@ html, body {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .btn-icon-round {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   padding: 0;
   background: #334155;
   border: 1px solid #475569;
   color: #F8FAFC;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -184,13 +185,14 @@ html, body {
   background: var(--rabbit-orange);
   color: #FFFFFF;
   border: none;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
-  padding: 6px 12px;
+  padding: 4.5px 9px;
   border-radius: var(--radius-full);
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(255, 77, 6, 0.35);
+  box-shadow: 0 1px 5px rgba(255, 77, 6, 0.3);
   transition: transform 0.1s ease, background 0.15s ease;
+  white-space: nowrap;
 }
 
 .btn-reset-compact:active {
@@ -201,10 +203,10 @@ html, body {
 /* Island Region Selector Tabs */
 .region-nav-bar {
   display: flex;
-  gap: 4px;
+  gap: 3px;
   background: #0F172A;
-  padding: 3px;
-  border-radius: var(--radius-sm);
+  padding: 2.5px;
+  border-radius: 6px;
   border: 1px solid #334155;
   width: 100%;
   box-sizing: border-box;
@@ -216,10 +218,10 @@ html, body {
   background: transparent;
   border: none;
   color: #94A3B8;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
-  padding: 6px 2px;
-  border-radius: 6px;
+  padding: 5px 2px;
+  border-radius: 4px;
   cursor: pointer;
   text-align: center;
   transition: all 0.15s ease;
@@ -237,37 +239,37 @@ html, body {
 /* Main Screen Tabs (Mobile Switcher) */
 .app-nav-tabs {
   display: flex;
-  gap: 4px;
+  gap: 3px;
   background: #0F172A;
-  padding: 3px;
-  border-radius: var(--radius-sm);
+  padding: 2.5px;
+  border-radius: 6px;
   border: 1px solid #334155;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
   width: 100%;
   box-sizing: border-box;
 }
 
 .nav-tab-btn {
   flex: 1 1 0;
-  min-width: 68px;
+  min-width: 0;
   background: transparent;
   border: none;
   color: #CBD5E1;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 7px 2px;
-  border-radius: 6px;
+  padding: 6px 1px;
+  border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
   text-align: center;
   transition: all 0.15s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nav-tab-btn.active-tab {
   background: var(--rabbit-orange);
   color: #FFFFFF;
-  box-shadow: 0 1px 6px rgba(255, 77, 6, 0.4);
+  box-shadow: 0 1px 5px rgba(255, 77, 6, 0.4);
 }
 
 /* ==========================================================================
@@ -656,6 +658,164 @@ html, body {
     box-shadow: 0 0 0px transparent;
     opacity: 0.75;
   }
+}
+
+/* ==========================================================================
+   AUTOMATIC LOAD DROPPING (ALD / UFLS) & SYSTEM DEMAND CONSOLE
+   ========================================================================== */
+.ald-console-section {
+  background: #F8FAFC;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  margin-top: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  box-sizing: border-box;
+}
+
+.ald-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.ald-title-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.ald-title {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #0F172A;
+  letter-spacing: -0.01em;
+}
+
+.ald-subtitle {
+  font-size: 8px;
+  font-weight: 600;
+  color: #64748B;
+}
+
+.ald-demand-banner {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  background: #0F172A;
+  border: 1px solid #1E293B;
+  border-radius: 6px;
+  padding: 6px 8px;
+  gap: 6px;
+}
+
+.ald-demand-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.ald-demand-col.text-right {
+  text-align: right;
+  align-items: flex-end;
+}
+
+.ald-demand-lbl {
+  font-size: 8px;
+  font-weight: 800;
+  color: #94A3B8;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ald-demand-val-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.ald-demand-val {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 900;
+  color: #38BDF8;
+  line-height: 1.15;
+}
+
+.ald-shed-val {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 900;
+  color: #10B981;
+  line-height: 1.15;
+}
+
+.ald-demand-sub {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #94A3B8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quick-ald-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.btn-ald-stage {
+  background: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+  font-weight: 800;
+  font-size: 9px;
+  padding: 5px 2px;
+  border-radius: 4px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-ald-stage:hover {
+  background: #FEE2E2;
+  border-color: #F87171;
+}
+
+.btn-ald-stage:active {
+  transform: scale(0.96);
+}
+
+.btn-ald-restore {
+  background: #F0FDF4;
+  color: #059669;
+  border: 1px solid #BBF7D0;
+  font-weight: 800;
+  font-size: 9px;
+  padding: 5px 2px;
+  border-radius: 4px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-ald-restore:hover {
+  background: #DCFCE7;
+  border-color: #86EFAC;
+}
+
+.btn-ald-restore:active {
+  transform: scale(0.96);
 }
 
 .quick-mld-row {

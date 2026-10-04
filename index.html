@@ -43,8 +43,8 @@
 
       <!-- MAIN APP NAVIGATION TABS (1-SCREEN MOBILE SWITCHER) -->
       <nav class="app-nav-tabs">
-        <button class="nav-tab-btn active-tab" data-tab="tab-sim">⚡ Grid Simulator</button>
-        <button class="nav-tab-btn" data-tab="tab-fleet">🧱 Fleet & Reserves</button>
+        <button class="nav-tab-btn active-tab" data-tab="tab-sim">⚡ Simulator</button>
+        <button class="nav-tab-btn" data-tab="tab-fleet">🧱 Fleet</button>
         <button class="nav-tab-btn" data-tab="tab-bill">💡 Bill Impact</button>
         <button class="nav-tab-btn" data-tab="tab-log">📟 SCADA Log</button>
       </nav>
@@ -152,11 +152,46 @@
             <!-- Dynamically populated in app.js -->
           </div>
 
-          <!-- Quick Emergency Load Shedding (MLD) Row -->
-          <div class="quick-mld-row">
-            <button id="btn-manual-mld-10" class="btn btn-xs btn-danger-soft">🚨 MLD 10%</button>
-            <button id="btn-manual-mld-20" class="btn btn-xs btn-danger-soft">🚨 MLD 20%</button>
-            <button id="btn-restore-mld" class="btn btn-xs btn-outline">🔄 Restore Shed</button>
+          <!-- AUTOMATIC LOAD DROPPING (ALD / UFLS) & SYSTEM DEMAND CONSOLE -->
+          <div class="ald-console-section">
+            <div class="ald-header-row">
+              <div class="ald-title-wrap">
+                <span class="ald-title">⚡ Automatic Load Dropping (ALD / UFLS)</span>
+                <span class="ald-subtitle">PGC Grid Defense • Dynamic Demand Readout</span>
+              </div>
+              <span id="ald-active-badge" class="badge badge-green">ARMED (59.10 Hz)</span>
+            </div>
+
+            <!-- Dynamic System Demand & ALD Shed Readout Card -->
+            <div class="ald-demand-banner">
+              <div class="ald-demand-col">
+                <span class="ald-demand-lbl">SYSTEM DEMAND</span>
+                <div class="ald-demand-val-wrap">
+                  <span id="metric-live-demand" class="ald-demand-val">7,500 MW</span>
+                  <span id="metric-demand-delta" class="ald-demand-sub">Nominal Load</span>
+                </div>
+              </div>
+              <div class="ald-demand-col text-right">
+                <span class="ald-demand-lbl">ALD LOAD SHED</span>
+                <div class="ald-demand-val-wrap">
+                  <span id="metric-ald-shed-val" class="ald-shed-val">0 MW Shed</span>
+                  <span id="metric-ald-stage-lbl" class="ald-demand-sub">Stage 0 (0%)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Quick ALD Trigger & Restore Buttons -->
+            <div class="quick-ald-row">
+              <button id="btn-ald-stage-1" class="btn btn-xs btn-ald-stage" title="Trigger ALD Stage 1 (10% Load Drop @ 59.10 Hz)">
+                🚨 ALD 10% (59.10Hz)
+              </button>
+              <button id="btn-ald-stage-2" class="btn btn-xs btn-ald-stage" title="Trigger ALD Stage 2 (20% Load Drop @ 58.80 Hz)">
+                🚨 ALD 20% (58.80Hz)
+              </button>
+              <button id="btn-restore-ald" class="btn btn-xs btn-outline btn-ald-restore" title="Reclose Feeders & Restore Demand">
+                🔄 Restore Load
+              </button>
+            </div>
           </div>
         </div>
 

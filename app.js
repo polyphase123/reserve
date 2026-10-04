@@ -523,17 +523,107 @@ document.addEventListener("DOMContentLoaded", () => {
     const dtHours = (sim.dt * 300) / 3600;
     const region = REGIONAL_GRIDS[currentRegionKey] || REGIONAL_GRIDS.luzon;
 
+    // Accurate Tripped MW Categorization per Grid Sector
+    let trippedMidMW = 0;
+    let trippedPeakMW = 0;
+    let trippedBaseMW = 0;
+    let trippedSolarMW = 0;
+
+    sim.activeOutages.forEach(p => {
+      const pid = (p.id || "").toLowerCase();
+      const cat = (p.category || "").toLowerCase();
+      const name = (p.name || "").toLowerCase();
+      const fuel = (p.fuel || "").toLowerCase();
+
+      const isMid = pid.includes("ilijan") || pid.includes("midmerit") || cat.includes("ccgt") || cat.includes("midmerit") || cat.includes("mid-merit") || fuel.includes("natural gas") || fuel.includes("lng") || (region.plants.midmerit && pid === region.plants.midmerit.id.toLowerCase());
+      
+      const isPeak = pid.includes("peaker") || pid.includes("limay") || pid.includes("malaya") || pid.includes("barge") || pid.includes("diesel") || cat.includes("peaking") || cat.includes("peaker") || (region.plants.peaking && pid === region.plants.peaking.id.toLowerCase()) || (region.plants.nonspin && pid === region.plants.nonspin.id.toLowerCase());
+
+      const isSolar = cat.includes("solar") || fuel.includes("solar") || pid.includes("solar");
+
+      if (isMid) {
+        trippedMidMW += p.mw;
+      } else if (isPeak) {
+        trippedPeakMW += p.mw;
+      } else if (isSolar) {
+        trippedSolarMW += p.mw;
+      } else {
+        trippedBaseMW += p.mw;
+      }
+    });
+
     const midMeritMaxMW = region.plants.midmerit ? region.plants.midmerit.capacityMW : 600;
-    let midMeritActiveMW = midMeritMaxMW * 0.75;
-    if (sim.trippedPlantMW > 0) {
-      midMeritActiveMW = Math.min(midMeritMaxMW, midMeritActiveMW + sim.trippedPlantMW * 0.4);
+    const effectiveMidCap = Math.max(0, midMeritMaxMW - trippedMidMW);
+    let midMeritActiveMW = Math.max(0, (midMeritMaxMW * 0.75) - trippedMidMW);
+    // If surviving mid-merit has headroom and baseload/solar tripped, ramp up surviving mid-merit
+    if (effectiveMidCap > 0 && (trippedBaseMW + trippedSolarMW > 0)) {
+      midMeritActiveMW = Math.min(effectiveMidCap, midMeritActiveMW + (trippedBaseMW + trippedSolarMW) * 0.35);
     }
 
     const peakerMaxMW = region.plants.peaking ? region.plants.peaking.capacityMW : 300;
-    let peakerActiveMW = sim.nonSpinActive ? state.nonSpinDeployed : (sim.trippedPlantMW > 350 ? Math.min(peakerMaxMW, (sim.trippedPlantMW - 350) * 0.7) : 0);
+    const effectivePeakerCap = Math.max(0, peakerMaxMW - trippedPeakMW);
+    let peakerActiveMW = 0;
+    if (effectivePeakerCap > 0) {
+      if (sim.nonSpinActive || state.nonSpinDeployed > 0) {
+        peakerActiveMW = Math.min(effectivePeakerCap, Math.max(state.nonSpinDeployed, 10));
+      } else if (sim.trippedPlantMW > 350) {
+        peakerActiveMW = Math.min(effectivePeakerCap, (sim.trippedPlantMW - 350) * 0.7);
+      }
+    }
 
     const baseFleetMaxMW = Math.max(100, region.baseDemandMW - Math.round(midMeritMaxMW * 0.75));
-    const currentBaseGen = Math.max(0, baseFleetMaxMW - sim.trippedPlantMW);
+    const currentBaseGen = Math.max(0, baseFleetMaxMW - trippedBaseMW);
+
+    // Dynamic System Demand & ALD (Automatic Load Dropping) Real-time Readouts
+    const nominalDemand = region.baseDemandMW || 7500;
+    const droppedMW = Math.round(sim.mldTrippedLoad || 0);
+    const currentDemand = Math.max(100, Math.round(sim.totalLoad - droppedMW));
+    const isAldActive = (sim.mldTriggered || sim.mldStage > 0 || droppedMW > 0);
+
+    const metricDemand = document.getElementById("metric-live-demand");
+    const metricDemandDelta = document.getElementById("metric-demand-delta");
+    const metricAldShedVal = document.getElementById("metric-ald-shed-val");
+    const metricAldStageLbl = document.getElementById("metric-ald-stage-lbl");
+    const aldActiveBadge = document.getElementById("ald-active-badge");
+
+    if (metricDemand) {
+      metricDemand.textContent = `${currentDemand.toLocaleString()} MW`;
+      metricDemand.style.color = isAldActive ? "#F59E0B" : "#0F172A";
+    }
+    if (metricDemandDelta) {
+      if (isAldActive) {
+        const pctStr = ((sim.mldPercentage || (droppedMW / nominalDemand)) * 100).toFixed(0);
+        metricDemandDelta.textContent = `-${droppedMW.toLocaleString()} MW (${pctStr}% ALD Drop)`;
+        metricDemandDelta.style.color = "#DC2626";
+      } else {
+        metricDemandDelta.textContent = `Nominal: ${nominalDemand.toLocaleString()} MW`;
+        metricDemandDelta.style.color = "#64748B";
+      }
+    }
+    if (metricAldShedVal) {
+      metricAldShedVal.textContent = isAldActive ? `-${droppedMW.toLocaleString()} MW Shed` : "0 MW Shed";
+      metricAldShedVal.style.color = isAldActive ? "#DC2626" : "#059669";
+    }
+    if (metricAldStageLbl) {
+      if (isAldActive) {
+        const stageName = typeof sim.mldStage === "number" ? `Stage ${sim.mldStage}` : "Manual ALD";
+        const pctStr = ((sim.mldPercentage || (droppedMW / nominalDemand)) * 100).toFixed(0);
+        metricAldStageLbl.textContent = `${stageName} (${pctStr}%)`;
+        metricAldStageLbl.style.color = "#DC2626";
+      } else {
+        metricAldStageLbl.textContent = "Armed (59.10 Hz)";
+        metricAldStageLbl.style.color = "#64748B";
+      }
+    }
+    if (aldActiveBadge) {
+      if (isAldActive) {
+        aldActiveBadge.className = "badge badge-red";
+        aldActiveBadge.textContent = typeof sim.mldStage === "number" ? `🚨 ALD STAGE ${sim.mldStage} ACTIVE` : "🚨 ALD ACTIVE";
+      } else {
+        aldActiveBadge.className = "badge badge-green";
+        aldActiveBadge.textContent = "ARMED (59.10 Hz)";
+      }
+    }
 
     // Update Mini Reserve Meters & Animated Stages in Tab 1
     // 1. BESS FFR & Draining Battery
@@ -558,7 +648,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (meterFfr) meterFfr.style.width = ffrCap > 0 ? ((state.ffrDeployed / ffrCap) * 100).toFixed(0) + "%" : "0%";
     if (statFfrVal) statFfrVal.textContent = Math.round(state.ffrDeployed) + " MW";
     if (statFfrMax) statFfrMax.textContent = ffrCap + " MW Cap";
-    if (badgeFfr) badgeFfr.textContent = state.ffrDeployed > 10 ? "INJECTING" : "STANDBY";
+    if (badgeFfr) {
+      if (state.ffrDeployed > 10) {
+        badgeFfr.textContent = "DISCHARGING";
+      } else if (sim.bessSoC < 95.0) {
+        badgeFfr.textContent = "CHARGING";
+      } else {
+        badgeFfr.textContent = "STANDBY";
+      }
+    }
 
     if (bessFill) {
       bessFill.style.width = sim.bessSoC.toFixed(1) + "%";
@@ -573,10 +671,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (bessSocText) bessSocText.textContent = `${sim.bessSoC.toFixed(1)}% SoC`;
     if (inverterPulse) {
       if (state.ffrDeployed > 10) {
-        inverterPulse.textContent = `⚡ Pumping +${Math.round(state.ffrDeployed)}M`;
+        inverterPulse.textContent = `⚡ Discharging +${Math.round(state.ffrDeployed)}M`;
         inverterPulse.style.color = "#818CF8";
+      } else if (sim.bessSoC < 95.0) {
+        inverterPulse.textContent = `🔋 Float Charging`;
+        inverterPulse.style.color = "#10B981";
       } else {
-        inverterPulse.textContent = "Inverter Ready";
+        inverterPulse.textContent = "Inverter Standby";
         inverterPulse.style.color = "#94A3B8";
       }
     }
@@ -1082,18 +1183,37 @@ document.addEventListener("DOMContentLoaded", () => {
     playBeep(520, "sine", 0.1);
   });
 
+  // Automatic Load Dropping (ALD / UFLS) Triggers & Feeder Restoration
+  document.getElementById("btn-ald-stage-1")?.addEventListener("click", () => {
+    sim.triggerALD(1);
+    logTerminal("ALD-DISPATCH", `🚨 <strong>ALD STAGE 1 EXECUTED</strong>: 10% demand dropped (-${Math.round(sim.mldTrippedLoad)} MW) across feeders.`, "term-tag-alert");
+    playBeep(140, "sawtooth", 0.5);
+  });
+
+  document.getElementById("btn-ald-stage-2")?.addEventListener("click", () => {
+    sim.triggerALD(2);
+    logTerminal("ALD-DISPATCH", `🚨 <strong>ALD STAGE 2 EXECUTED</strong>: 20% demand dropped (-${Math.round(sim.mldTrippedLoad)} MW) across feeders.`, "term-tag-alert");
+    playBeep(120, "sawtooth", 0.6);
+  });
+
+  document.getElementById("btn-restore-ald")?.addEventListener("click", () => {
+    sim.restoreALD();
+    logTerminal("ALD-RESTORE", `✓ <strong>ALD FEEDERS RECLOSED</strong>: System demand fully restored to nominal load.`, "term-tag-info");
+    playBeep(580, "sine", 0.12);
+  });
+
   document.getElementById("btn-manual-mld-10")?.addEventListener("click", () => {
-    sim.triggerManualMLD(0.10);
+    sim.triggerALD(1);
     playBeep(140, "sawtooth", 0.5);
   });
 
   document.getElementById("btn-manual-mld-20")?.addEventListener("click", () => {
-    sim.triggerManualMLD(0.20);
+    sim.triggerALD(2);
     playBeep(120, "sawtooth", 0.6);
   });
 
   document.getElementById("btn-restore-mld")?.addEventListener("click", () => {
-    sim.restoreMLD();
+    sim.restoreALD();
     playBeep(580, "sine", 0.12);
   });
 
@@ -1173,7 +1293,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       if (metricBalance) {
-        const net = Math.round(sim.totalGen - sim.totalLoad);
+        const effectiveLoad = Math.max(100, sim.totalLoad - (sim.mldTrippedLoad || 0));
+        const net = Math.round(sim.totalGen - effectiveLoad - sim.trippedPlantMW + (sim.ffrDeployed + Math.abs(sim.regDeployed) + sim.spinDeployed + sim.nonSpinDeployed));
         metricBalance.textContent = `${net >= 0 ? '+' : ''}${net} MW`;
         metricBalance.style.color = net < -50 ? "#EF4444" : "#10B981";
       }
