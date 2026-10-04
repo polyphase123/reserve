@@ -165,7 +165,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       btn.innerHTML = `
         <div class="plant-btn-title">
-          <span>${plant.name} (-${plant.mw}M)</span>
+          <span class="plant-btn-name">${plant.name} (-${plant.mw}M)</span>
           <span class="btn-trip-erc-badge" title="View Official ERC Case" onclick="event.stopPropagation(); window.openPlantModal('${plant.id}');">
             ⚖️ ${shortDocket}
           </span>
