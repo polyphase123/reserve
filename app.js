@@ -66,39 +66,259 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (e) {}
   }
 
-  // --- REAL-TIME SCADA / WESM DISPATCH TERMINAL LOGGER ---
+  // --- EXPANDED REAL-TIME SCADA EMS & WESM DISPATCH TERMINAL CONTROLLER ---
   const terminalBody = document.getElementById("terminal-body");
   const terminalClock = document.getElementById("terminal-clock");
-  const terminalMaxLines = 80;
+  const terminalFilterLabel = document.getElementById("terminal-filter-label");
+  const terminalLineCounter = document.getElementById("terminal-line-counter");
+  const terminalStatusMsg = document.getElementById("terminal-status-msg");
+  const terminalAutoscrollBadge = document.getElementById("terminal-autoscroll-badge");
+  const terminalLiveDot = document.getElementById("terminal-live-dot");
+  const terminalSearchInput = document.getElementById("terminal-search-input");
 
-  function logTerminal(tag, message, tagClass = "term-tag-info") {
-    if (!terminalBody) return;
+  const termKpiAgc = document.getElementById("term-kpi-agc");
+  const termKpiAce = document.getElementById("term-kpi-ace");
+  const termKpiLmp = document.getElementById("term-kpi-lmp");
+  const termKpiRocof = document.getElementById("term-kpi-rocof");
+
+  let terminalLogsBuffer = [];
+  let terminalActiveFilter = "all";
+  let terminalSearchQuery = "";
+  let terminalIsPaused = false;
+  let terminalAutoScroll = true;
+  const TERMINAL_MAX_BUFFER = 400;
+
+  // Category mapping helper
+  function getCategoryForTag(tag) {
+    const t = (tag || "").toUpperCase();
+    if (t.includes("TRIP") || t.includes("ALERT") || t.includes("ALARM") || t.includes("COLLAPSE") || t.includes("ROCOF")) return "alert";
+    if (t.includes("WESM") || t.includes("LMP") || t.includes("MARKET") || t.includes("PEAKER")) return "wesm";
+    if (t.includes("BESS") || t.includes("FFR") || t.includes("INVERTER") || t.includes("BATTERY")) return "bess";
+    if (t.includes("ALD") || t.includes("UFLS") || t.includes("FEEDER") || t.includes("MLD")) return "ald";
+    if (t.includes("ERC") || t.includes("DOCKET") || t.includes("LEGAL") || t.includes("STATUTE")) return "erc";
+    return "scada";
+  }
+
+  function logTerminal(tag, message, tagClass = "term-tag-info", isAlert = false) {
     const timeStr = `T+${sim.time.toFixed(1)}s`;
+    const category = getCategoryForTag(tag);
+    const rawText = `[${timeStr}] [${tag}] ${message.replace(/<[^>]*>?/gm, "")}`;
+
+    const logEntry = {
+      id: "log_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+      timeStr: timeStr,
+      tag: tag,
+      message: message,
+      tagClass: tagClass,
+      category: category,
+      rawText: rawText,
+      isAlert: isAlert || tagClass.includes("alert"),
+      simTime: sim.time
+    };
+
+    terminalLogsBuffer.push(logEntry);
+    if (terminalLogsBuffer.length > TERMINAL_MAX_BUFFER) {
+      terminalLogsBuffer.shift();
+    }
+
+    updateTerminalCounts();
+
+    if (!terminalIsPaused) {
+      renderSingleTerminalLine(logEntry);
+    }
+  }
+
+  function renderSingleTerminalLine(entry) {
+    if (!terminalBody) return;
+
+    // Check filter match
+    if (terminalActiveFilter !== "all" && entry.category !== terminalActiveFilter) {
+      return;
+    }
+
+    // Check search query match
+    if (terminalSearchQuery && !entry.rawText.toLowerCase().includes(terminalSearchQuery)) {
+      return;
+    }
+
     const line = document.createElement("div");
-    line.className = "term-line";
+    line.className = `term-line ${entry.isAlert ? "term-line-highlight" : ""}`;
     line.innerHTML = `
-      <span class="term-time">${timeStr}</span>
-      <span class="term-tag ${tagClass}">${tag}</span>
-      <span class="term-msg">${message}</span>
+      <span class="term-time">${entry.timeStr}</span>
+      <span class="term-tag ${entry.tagClass}">${entry.tag}</span>
+      <span class="term-msg">${entry.message}</span>
     `;
+
     terminalBody.appendChild(line);
 
-    while (terminalBody.children && terminalBody.children.length > terminalMaxLines) {
+    // Limit DOM children for performance
+    while (terminalBody.children.length > 250) {
       terminalBody.removeChild(terminalBody.children[0]);
     }
 
-    terminalBody.scrollTop = terminalBody.scrollHeight;
+    if (terminalAutoScroll) {
+      terminalBody.scrollTop = terminalBody.scrollHeight;
+    }
   }
 
-  document.getElementById("btn-clear-terminal")?.addEventListener("click", () => {
-    if (terminalBody) terminalBody.innerHTML = "";
-    logTerminal("SYSTEM", "Terminal log cleared by operator.", "term-tag-info");
+  function refreshTerminalDisplay() {
+    if (!terminalBody) return;
+    terminalBody.innerHTML = "";
+
+    const filtered = terminalLogsBuffer.filter(entry => {
+      if (terminalActiveFilter !== "all" && entry.category !== terminalActiveFilter) return false;
+      if (terminalSearchQuery && !entry.rawText.toLowerCase().includes(terminalSearchQuery)) return false;
+      return true;
+    });
+
+    // Render up to last 200 matches
+    const startIdx = Math.max(0, filtered.length - 200);
+    for (let i = startIdx; i < filtered.length; i++) {
+      const entry = filtered[i];
+      const line = document.createElement("div");
+      line.className = `term-line ${entry.isAlert ? "term-line-highlight" : ""}`;
+      line.innerHTML = `
+        <span class="term-time">${entry.timeStr}</span>
+        <span class="term-tag ${entry.tagClass}">${entry.tag}</span>
+        <span class="term-msg">${entry.message}</span>
+      `;
+      terminalBody.appendChild(line);
+    }
+
+    if (terminalAutoScroll) {
+      terminalBody.scrollTop = terminalBody.scrollHeight;
+    }
+
+    if (terminalLineCounter) {
+      terminalLineCounter.textContent = `${filtered.length} of ${terminalLogsBuffer.length} events`;
+    }
+  }
+
+  function updateTerminalCounts() {
+    const countAll = document.getElementById("count-log-all");
+    if (countAll) countAll.textContent = terminalLogsBuffer.length;
+
+    if (terminalLineCounter) {
+      terminalLineCounter.textContent = `${terminalLogsBuffer.length} events`;
+    }
+  }
+
+  // Wire Terminal Filter Chips
+  document.querySelectorAll(".btn-term-filter").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".btn-term-filter").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      terminalActiveFilter = btn.getAttribute("data-filter") || "all";
+
+      if (terminalFilterLabel) {
+        terminalFilterLabel.textContent = `FILTER: ${terminalActiveFilter.toUpperCase()}`;
+        terminalFilterLabel.className = terminalActiveFilter === "alert" ? "badge badge-red" : (terminalActiveFilter === "all" ? "badge badge-blue" : "badge badge-indigo");
+      }
+
+      refreshTerminalDisplay();
+      playBeep(520, "sine", 0.05);
+    });
   });
 
-  // Seed Initial Terminal Logs
-  logTerminal("SCADA", "NGCP Energy Management System (EMS) & AGC Online.", "term-tag-info");
-  logTerminal("WESM", "Ex-Ante Co-Optimization Engine Synchronized. 1s = 5-min RTM.", "term-tag-wesm");
-  logTerminal("GRID", "Nominal frequency 60.000 Hz. All primary & secondary reserves ready.", "term-tag-dispatch");
+  // Wire Terminal Search
+  terminalSearchInput?.addEventListener("input", (e) => {
+    terminalSearchQuery = (e.target.value || "").toLowerCase().trim();
+    refreshTerminalDisplay();
+  });
+
+  document.getElementById("btn-term-search-clear")?.addEventListener("click", () => {
+    if (terminalSearchInput) {
+      terminalSearchInput.value = "";
+      terminalSearchQuery = "";
+      refreshTerminalDisplay();
+      playBeep(480, "sine", 0.05);
+    }
+  });
+
+  // Wire Clear Terminal Button
+  document.getElementById("btn-clear-terminal")?.addEventListener("click", () => {
+    terminalLogsBuffer = [];
+    if (terminalBody) terminalBody.innerHTML = "";
+    updateTerminalCounts();
+    logTerminal("SYSTEM", "Terminal telemetry log cleared by System Operator.", "term-tag-info");
+    playBeep(440, "sine", 0.08);
+  });
+
+  // Wire Pause / Resume Feed Toggle
+  const btnPauseTerm = document.getElementById("btn-pause-terminal");
+  const termPauseIcon = document.getElementById("term-pause-icon");
+  const termPauseLabel = document.getElementById("term-pause-label");
+
+  btnPauseTerm?.addEventListener("click", () => {
+    terminalIsPaused = !terminalIsPaused;
+    if (terminalIsPaused) {
+      if (termPauseIcon) termPauseIcon.textContent = "▶";
+      if (termPauseLabel) termPauseLabel.textContent = "Resume";
+      btnPauseTerm.classList.add("btn-danger-soft");
+      if (terminalLiveDot) terminalLiveDot.className = "dot-indicator dot-amber";
+      if (terminalStatusMsg) terminalStatusMsg.textContent = "⏸ Telemetry Feed Paused (Logging to background buffer)";
+    } else {
+      if (termPauseIcon) termPauseIcon.textContent = "⏸";
+      if (termPauseLabel) termPauseLabel.textContent = "Pause";
+      btnPauseTerm.classList.remove("btn-danger-soft");
+      if (terminalLiveDot) terminalLiveDot.className = "dot-indicator dot-green";
+      if (terminalStatusMsg) terminalStatusMsg.textContent = "● Telemetry Stream Active (200ms cyclic rate)";
+      refreshTerminalDisplay();
+    }
+    playBeep(540, "sine", 0.06);
+  });
+
+  // Wire Auto-scroll Toggle Badge
+  terminalAutoscrollBadge?.addEventListener("click", () => {
+    terminalAutoScroll = !terminalAutoScroll;
+    if (terminalAutoScroll) {
+      terminalAutoscrollBadge.textContent = "AUTOSCROLL: ON";
+      terminalAutoscrollBadge.className = "badge badge-green";
+      if (terminalBody) terminalBody.scrollTop = terminalBody.scrollHeight;
+    } else {
+      terminalAutoscrollBadge.textContent = "AUTOSCROLL: OFF";
+      terminalAutoscrollBadge.className = "badge badge-amber";
+    }
+    playBeep(500, "sine", 0.05);
+  });
+
+  // Wire Copy Logs to Clipboard
+  document.getElementById("btn-copy-terminal")?.addEventListener("click", () => {
+    if (terminalLogsBuffer.length === 0) return;
+    const textData = terminalLogsBuffer.map(e => e.rawText).join("\n");
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(textData).then(() => {
+        logTerminal("OPERATOR", "📋 Entire SCADA & WESM log buffer copied to clipboard.", "term-tag-info");
+        playBeep(650, "sine", 0.1);
+      });
+    }
+  });
+
+  // Wire Export CSV / Log File
+  document.getElementById("btn-export-terminal")?.addEventListener("click", () => {
+    if (terminalLogsBuffer.length === 0) return;
+    let csvContent = "Timestamp,SimulationTime,Category,Tag,Message\n";
+    terminalLogsBuffer.forEach(e => {
+      const cleanMsg = e.message.replace(/<[^>]*>?/gm, "").replace(/"/g, '""');
+      csvContent += `"${e.timeStr}","${e.simTime.toFixed(2)}s","${e.category}","${e.tag}","${cleanMsg}"\n`;
+    });
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `NGCP_SCADA_WESM_Telemetry_${currentRegionKey.toUpperCase()}_T${sim.time.toFixed(0)}s.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    logTerminal("EXPORT", `💾 SCADA EMS log archive exported (${terminalLogsBuffer.length} records).`, "term-tag-info");
+    playBeep(700, "sine", 0.12);
+  });
+
+  // Seed Initial High-Fidelity Terminal Logs
+  logTerminal("SCADA-EMS", "NGCP National Control Center (NCC) SCADA/AGC Online. 4-second closed loop synchronized.", "term-tag-scada");
+  logTerminal("WESM-RTM", "Ex-Ante Co-Optimization Engine active across Luzon, Visayas & Mindanao. Baseline LMP: <strong>₱4,850.00/MWh</strong>.", "term-tag-wesm");
+  logTerminal("GRID-STATUS", "One Grid Philippines nominal: <strong>60.000 Hz</strong>. N-1 Benchmark: <strong>Dinginin 668 MW</strong>. Dynamic reserves armed.", "term-tag-dispatch");
+  logTerminal("ASPA-AUDIT", "Firm ASPA contracts verified under <strong>DOE DC2021-10-0031 & ERC Res. 01-2024</strong>. Standby availability: 100%.", "term-tag-erc");
 
   // --- CANVASES INITIALIZATION (HIGH-DPI RETINA SCALED) ---
   const waveCanvas = document.getElementById("waveformCanvas");
@@ -191,7 +411,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ctaSpan.className = "plant-trip-cta";
             ctaSpan.textContent = "⚡ CLICK TO TRIP";
           }
-          logTerminal("PLANT-RESTORE", `✓ <strong>${plant.name}</strong> restored & resynchronized (+${plant.mw} MW).`, "term-tag-info");
+          logTerminal("PLANT-RESTORE", `✓ <strong>${plant.name}</strong> [52A-CLOSE]: Resynchronized (+${plant.mw} MW). Remaining grid deficit: <strong>-${sim.trippedPlantMW} MW</strong>.`, "term-tag-restore");
           playBeep(520, "sine", 0.12);
         } else {
           sim.tripPlant(plant);
@@ -200,8 +420,8 @@ document.addEventListener("DOMContentLoaded", () => {
             ctaSpan.className = "plant-restore-cta";
             ctaSpan.textContent = "🔄 RESTORE";
           }
-          logTerminal("PLANT-TRIP", `💥 <strong>${plant.name}</strong> FORCED OUTAGE (-${plant.mw} MW)! Total Lost: <strong>-${sim.trippedPlantMW} MW</strong>.`, "term-tag-alert");
-          logTerminal("ERC-AUDIT", `⚖️ Unplanned trip under <strong>${plant.ercCaseNumber || "ERC Res 10-2020"}</strong>. Fine: ₱${(plant.unexcusedPenaltyPerHour || 125000).toLocaleString()}/hr.`, "term-tag-erc");
+          logTerminal("PLANT-TRIP", `💥 <strong>${plant.name}</strong> [BREAKER 52A TRIP]: FORCED OUTAGE (-${plant.mw} MW lost at ${plant.location})! Total Lost: <strong>-${sim.trippedPlantMW} MW</strong>.`, "term-tag-alert");
+          logTerminal("ERC-AUDIT", `⚖️ <strong>${plant.ercCaseNumber || "ERC Res 10-2020"}</strong>: Unscheduled trip breach. Penalty rate: <strong class="term-penalty">₱${(plant.unexcusedPenaltyPerHour || 125000).toLocaleString()}/hr</strong> under EPIRA Section 46.`, "term-tag-erc");
           playBeep(180, "sawtooth", 0.45);
         }
         updateTrippedBadge();
@@ -319,10 +539,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const spinM = (sim.spinCapacity * 595000 / 1000000).toFixed(1);
     const nonSpinM = (sim.nonSpinCapacity * 680000 / 1000000).toFixed(1);
 
-    if (p.ffr && document.getElementById("res-plant-name-ffr")) document.getElementById("res-plant-name-ffr").textContent = `${p.ffr.name} (${p.ffr.capacityMW} MW)`;
-    if (p.reg && document.getElementById("res-plant-name-reg")) document.getElementById("res-plant-name-reg").textContent = `${p.reg.name} (${p.reg.capacityMW} MW)`;
-    if (p.spin && document.getElementById("res-plant-name-spin")) document.getElementById("res-plant-name-spin").textContent = `${p.spin.name} (${p.spin.capacityMW} MW)`;
-    if (p.nonspin && document.getElementById("res-plant-name-nonspin")) document.getElementById("res-plant-name-nonspin").textContent = `${p.nonspin.name} (${p.nonspin.capacityMW} MW)`;
+    const cleanPlantName = (n) => n ? n.replace(/\s*\([\d,]+\s*MW\)/gi, '').trim() : '';
+
+    if (p.ffr && document.getElementById("res-plant-name-ffr")) document.getElementById("res-plant-name-ffr").textContent = `${cleanPlantName(p.ffr.name)} (${p.ffr.capacityMW} MW)`;
+    if (p.reg && document.getElementById("res-plant-name-reg")) document.getElementById("res-plant-name-reg").textContent = `${cleanPlantName(p.reg.name)} (${p.reg.capacityMW} MW)`;
+    if (p.spin && document.getElementById("res-plant-name-spin")) document.getElementById("res-plant-name-spin").textContent = `${cleanPlantName(p.spin.name)} (${p.spin.capacityMW} MW)`;
+    if (p.nonspin && document.getElementById("res-plant-name-nonspin")) document.getElementById("res-plant-name-nonspin").textContent = `${cleanPlantName(p.nonspin.name)} (${p.nonspin.capacityMW} MW)`;
 
     if (document.getElementById("profit-val-ffr")) document.getElementById("profit-val-ffr").textContent = `₱${ffrM}M/mo`;
     if (document.getElementById("profit-val-reg")) document.getElementById("profit-val-reg").textContent = `₱${regM}M/mo`;
@@ -570,12 +792,12 @@ document.addEventListener("DOMContentLoaded", () => {
           const currentlyTripped = sim.activeOutages.some(p => p.id === unit.id);
           if (currentlyTripped) {
             sim.untripPlant(unit.id);
-            logTerminal("PLANT-RESTORE", `✓ <strong>${unit.name}</strong> restored & resynchronized (+${unit.mw} MW).`, "term-tag-info");
+            logTerminal("PLANT-RESTORE", `✓ <strong>${unit.name}</strong> [52A-CLOSE]: Resynchronized (+${unit.mw} MW). Remaining grid deficit: <strong>-${sim.trippedPlantMW} MW</strong>.`, "term-tag-restore");
             playBeep(520, "sine", 0.12);
           } else {
             sim.tripPlant(unit);
-            logTerminal("PLANT-TRIP", `💥 <strong>${unit.name}</strong> FORCED OUTAGE (-${unit.mw} MW)! Total Lost: <strong>-${sim.trippedPlantMW} MW</strong>.`, "term-tag-alert");
-            logTerminal("ERC-AUDIT", `⚖️ Unplanned trip under <strong>${unit.ercCaseNumber || "ERC Res 10-2020"}</strong>. Fine: ₱${(unit.unexcusedPenaltyPerHour || 125000).toLocaleString()}/hr.`, "term-tag-erc");
+            logTerminal("PLANT-TRIP", `💥 <strong>${unit.name}</strong> [BREAKER 52A TRIP]: FORCED CONTINGENCY (-${unit.mw} MW lost at ${unit.location})! Total Lost: <strong>-${sim.trippedPlantMW} MW</strong>.`, "term-tag-alert");
+            logTerminal("ERC-AUDIT", `⚖️ <strong>${unit.ercCaseNumber || "ERC Res 10-2020"}</strong>: Unscheduled forced trip logged. Statutory penalty fine: <strong class="term-penalty">₱${(unit.unexcusedPenaltyPerHour || 125000).toLocaleString()}/hr</strong>.`, "term-tag-erc");
             playBeep(180, "sawtooth", 0.45);
           }
           updateTrippedBadge();
@@ -821,9 +1043,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 5. Adaptive Dynamic Y-Axis Ticks & Gridlines
     const startTick = Math.ceil((minF + 0.0001) / step) * step;
-    freqCtx.font = "8px ui-monospace, monospace";
+    freqCtx.font = "7.5px ui-monospace, monospace";
     freqCtx.textAlign = "right";
 
+    let lastDrawnY = -999;
     for (let f = startTick; f <= maxF - 0.0001; f += step) {
       const y = getY(f);
       if (y >= topPad + 2 && y <= displayH - botPad - 2) {
@@ -837,9 +1060,12 @@ document.addEventListener("DOMContentLoaded", () => {
         freqCtx.lineTo(displayW, y);
         freqCtx.stroke();
 
-        // Tick Label text
-        freqCtx.fillStyle = isNominal ? "#10B981" : "#94A3B8";
-        freqCtx.fillText(f.toFixed(precision), leftPad - 3, y + 2.5);
+        // Prevent superimposing tick text if too close to previous label
+        if (Math.abs(y - lastDrawnY) >= 10.5 || isNominal) {
+          freqCtx.fillStyle = isNominal ? "#10B981" : "#94A3B8";
+          freqCtx.fillText(f.toFixed(precision), leftPad - 3, y + 2.5);
+          lastDrawnY = y;
+        }
       }
     }
 
@@ -931,10 +1157,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const effectivePeakerCap = Math.max(0, peakerMaxMW - trippedPeakMW);
     let peakerActiveMW = 0;
     if (effectivePeakerCap > 0) {
-      if (sim.nonSpinActive || state.nonSpinDeployed > 0) {
-        peakerActiveMW = Math.min(effectivePeakerCap, Math.max(state.nonSpinDeployed, 10));
-      } else if (sim.trippedPlantMW > 350) {
-        peakerActiveMW = Math.min(effectivePeakerCap, (sim.trippedPlantMW - 350) * 0.7);
+      // Energy merit peakers only run during extreme net deficits exceeding total ASPA reserve capacity
+      const totalReserveCap = (sim.spinCapacity || 400) + (sim.nonSpinCapacity || 300);
+      if (sim.trippedPlantMW > totalReserveCap) {
+        peakerActiveMW = Math.min(effectivePeakerCap, (sim.trippedPlantMW - totalReserveCap) * 0.85);
       }
     }
 
@@ -1020,16 +1246,26 @@ document.addEventListener("DOMContentLoaded", () => {
     const bessSocText = document.getElementById("bess-soc-text");
     const inverterPulse = document.getElementById("inverter-pulse");
 
-    if (meterFfr) meterFfr.style.width = ffrCap > 0 ? ((state.ffrDeployed / ffrCap) * 100).toFixed(0) + "%" : "0%";
-    if (statFfrVal) statFfrVal.textContent = Math.round(state.ffrDeployed) + " MW";
+    if (meterFfr) meterFfr.style.width = ffrCap > 0 ? ((Math.abs(state.ffrDeployed) / ffrCap) * 100).toFixed(0) + "%" : "0%";
+    if (statFfrVal) {
+      if (state.ffrDeployed < -2) {
+        statFfrVal.textContent = `-${Math.abs(Math.round(state.ffrDeployed))} MW (Chg)`;
+        statFfrVal.style.color = "#10B981";
+      } else {
+        statFfrVal.textContent = `${Math.round(state.ffrDeployed)} MW`;
+        statFfrVal.style.color = "";
+      }
+    }
     if (statFfrMax) statFfrMax.textContent = ffrCap + " MW Cap";
     if (badgeFfr) {
       if (sim.bessSoC <= 10.5) {
         badgeFfr.textContent = "DEPLETED";
+      } else if (state.ffrDeployed < -5) {
+        badgeFfr.textContent = "FAST CHARGE";
       } else if (state.ffrDeployed > 5) {
         badgeFfr.textContent = "DISCHARGING";
       } else if (sim.bessSoC < 95.0) {
-        badgeFfr.textContent = "CHARGING";
+        badgeFfr.textContent = "FLOAT CHG";
       } else {
         badgeFfr.textContent = "STANDBY";
       }
@@ -1050,6 +1286,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (sim.bessSoC <= 10.5) {
         inverterPulse.textContent = "⚠️ BESS Depleted";
         inverterPulse.style.color = "#EF4444";
+      } else if (state.ffrDeployed < -5) {
+        inverterPulse.textContent = `🔋 Over-Freq Fast Charging -${Math.abs(Math.round(state.ffrDeployed))}M`;
+        inverterPulse.style.color = "#10B981";
       } else if (state.ffrDeployed > 5) {
         inverterPulse.textContent = `⚡ Discharging +${Math.round(state.ffrDeployed)}M`;
         inverterPulse.style.color = "#818CF8";
@@ -1071,10 +1310,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const runnerReg = document.getElementById("runner-reg");
     const wicketGateText = document.getElementById("wicket-gate-text");
 
-    if (meterReg) meterReg.style.width = regCap > 0 ? (Math.max(0, state.regDeployed / regCap) * 100).toFixed(0) + "%" : "0%";
-    if (statRegVal) statRegVal.textContent = Math.round(state.regDeployed) + " MW";
+    if (meterReg) meterReg.style.width = regCap > 0 ? (Math.min(100, Math.max(0, Math.abs(state.regDeployed) / regCap * 100))).toFixed(0) + "%" : "0%";
+    if (statRegVal) {
+      if (state.regDeployed < -2) {
+        statRegVal.textContent = `-${Math.abs(Math.round(state.regDeployed))} MW (Down)`;
+      } else {
+        statRegVal.textContent = `${Math.round(state.regDeployed)} MW`;
+      }
+    }
     if (statRegMax) statRegMax.textContent = regCap + " MW Cap";
-    if (badgeReg) badgeReg.textContent = Math.abs(state.regDeployed) > 10 ? "RAMPING" : "ACTIVE";
+    if (badgeReg) {
+      if (state.regDeployed < -5) badgeReg.textContent = "REG-DOWN";
+      else if (state.regDeployed > 5) badgeReg.textContent = "REG-UP";
+      else badgeReg.textContent = "ACTIVE";
+    }
 
     const isRegFast = Math.abs(state.regDeployed) > 8;
     if (runnerReg) {
@@ -1199,12 +1448,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const vbarValFfr = document.getElementById("vbar-val-ffr");
     const vbarFillFfr = document.getElementById("vbar-fill-ffr");
-    if (vbarValFfr) vbarValFfr.textContent = `${Math.round(state.ffrDeployed)}M`;
-    if (vbarFillFfr) vbarFillFfr.style.height = `${Math.min(100, Math.max(0, (state.ffrDeployed / ffrCap) * 100)).toFixed(0)}%`;
+    if (vbarValFfr) vbarValFfr.textContent = `${state.ffrDeployed < -1 ? '-' : ''}${Math.round(Math.abs(state.ffrDeployed))}M`;
+    if (vbarFillFfr) vbarFillFfr.style.height = `${Math.min(100, Math.max(0, (Math.abs(state.ffrDeployed) / ffrCap) * 100)).toFixed(0)}%`;
 
     const vbarValReg = document.getElementById("vbar-val-reg");
     const vbarFillReg = document.getElementById("vbar-fill-reg");
-    if (vbarValReg) vbarValReg.textContent = `${Math.round(Math.abs(state.regDeployed))}M`;
+    if (vbarValReg) vbarValReg.textContent = `${state.regDeployed < -1 ? '-' : ''}${Math.round(Math.abs(state.regDeployed))}M`;
     if (vbarFillReg) vbarFillReg.style.height = `${Math.min(100, Math.max(0, (Math.abs(state.regDeployed) / regCap) * 100)).toFixed(0)}%`;
 
     const vbarValSpin = document.getElementById("vbar-val-spin");
@@ -1217,7 +1466,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (vbarValNonSpin) vbarValNonSpin.textContent = `${Math.round(state.nonSpinDeployed)}M`;
     if (vbarFillNonSpin) vbarFillNonSpin.style.height = `${Math.min(100, Math.max(0, (state.nonSpinDeployed / nonSpinCap) * 100)).toFixed(0)}%`;
 
-    const totalActiveGenStack = currentBaseGen + midMeritActiveMW + peakerActiveMW + state.ffrDeployed + Math.abs(state.regDeployed) + state.spinDeployed + state.nonSpinDeployed;
+    const totalActiveGenStack = currentBaseGen + midMeritActiveMW + peakerActiveMW + state.ffrDeployed + state.regDeployed + state.spinDeployed + state.nonSpinDeployed;
     const stackBadge = document.getElementById("stack-total-mw-badge");
     if (stackBadge) stackBadge.textContent = `${Math.round(totalActiveGenStack).toLocaleString()} MW Total`;
 
@@ -1529,11 +1778,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const currentlyTripped = sim.activeOutages.some(p => p.id === plant.id);
       if (currentlyTripped) {
         sim.untripPlant(plant.id);
-        logTerminal("PLANT-RESTORE", `✓ <strong>${plant.name}</strong> restored (+${plant.mw} MW).`, "term-tag-info");
+        logTerminal("PLANT-RESTORE", `✓ <strong>${plant.name}</strong> [52A-CLOSE]: Unit resynchronized (+${plant.mw} MW). Remaining grid deficit: <strong>-${sim.trippedPlantMW} MW</strong>.`, "term-tag-restore");
         playBeep(520, "sine", 0.12);
       } else {
         sim.tripPlant(plant);
-        logTerminal("PLANT-TRIP", `💥 <strong>${plant.name}</strong> FORCED OUTAGE (-${plant.mw} MW)! Total Lost: -${sim.trippedPlantMW} MW.`, "term-tag-alert");
+        logTerminal("PLANT-TRIP", `💥 <strong>${plant.name}</strong> [BREAKER 52A TRIP]: FORCED OUTAGE (-${plant.mw} MW lost)! Grid deficit: <strong>-${sim.trippedPlantMW} MW</strong>.`, "term-tag-alert");
+        logTerminal("ERC-AUDIT", `⚖️ <strong>${plant.ercCaseNumber || "ERC Res 10-2020"}</strong>: Unscheduled trip. Penalty accrual rate: <strong class="term-penalty">₱${(plant.unexcusedPenaltyPerHour || 125000).toLocaleString()}/hr</strong>.`, "term-tag-erc");
         playBeep(180, "sawtooth", 0.45);
       }
       renderRegionalOutageButtons(currentRegionKey);
@@ -1556,14 +1806,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if (availableToTrip.length > 0) {
       chosenPlant = availableToTrip[Math.floor(Math.random() * availableToTrip.length)];
       sim.tripPlant(chosenPlant);
-      logTerminal("RANDOM-TRIP", `💥 <strong>${chosenPlant.name}</strong> FORCED CONTINGENCY (-${chosenPlant.mw} MW lost)! Trajectory reacting.`, "term-tag-alert");
-      logTerminal("ERC-AUDIT", `⚖️ Grid disturbance logged under <strong>${chosenPlant.ercCaseNumber || "ERC Res 10-2020"}</strong>. Penalty rate: ₱${(chosenPlant.unexcusedPenaltyPerHour || 125000).toLocaleString()}/hr.`, "term-tag-erc");
+      logTerminal("RANDOM-TRIP", `💥 <strong>${chosenPlant.name}</strong> [FORCED CONTINGENCY]: Breaker 52A open (-${chosenPlant.mw} MW lost at ${chosenPlant.location})! Total Grid Loss: <strong>-${sim.trippedPlantMW} MW</strong>.`, "term-tag-alert");
+      logTerminal("ERC-AUDIT", `⚖️ Grid disturbance logged under <strong>${chosenPlant.ercCaseNumber || "ERC Res 10-2020"}</strong>. Penalty rate: <strong class="term-penalty">₱${(chosenPlant.unexcusedPenaltyPerHour || 125000).toLocaleString()}/hr</strong>.`, "term-tag-erc");
       playBeep(180, "sawtooth", 0.45);
     } else {
       sim.clearContingency();
       chosenPlant = plantList[Math.floor(Math.random() * plantList.length)];
       sim.tripPlant(chosenPlant);
-      logTerminal("RANDOM-TRIP", `🔄 Grid reset & fresh random trip on <strong>${chosenPlant.name}</strong> (-${chosenPlant.mw} MW lost)!`, "term-tag-alert");
+      logTerminal("RANDOM-TRIP", `🔄 Grid reset & fresh random contingency on <strong>${chosenPlant.name}</strong> (-${chosenPlant.mw} MW lost)!`, "term-tag-alert");
       playBeep(180, "sawtooth", 0.45);
     }
 
@@ -1680,8 +1930,12 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("click", executeSimulationReset);
   });
 
-  // --- 7. MAIN SIMULATION 60 FPS LOOP ---
+  // --- 7. MAIN SIMULATION 60 FPS LOOP & PERIODIC SCADA TELEMETRY STREAM ---
   let lastTime = performance.now();
+  let lastAgcLogTime = 0;
+  let lastWesmLogTime = 0;
+  let lastPmuLogTime = 0;
+  let lastBessLogTime = 0;
 
   function loop(currentTime) {
     try {
@@ -1702,6 +1956,106 @@ document.addEventListener("DOMContentLoaded", () => {
         nonSpinDeployed: sim.nonSpinDeployed,
         trippedPlantMW: sim.trippedPlantMW
       };
+
+      const region = REGIONAL_GRIDS[currentRegionKey] || REGIONAL_GRIDS.luzon;
+      const nominal = sim.nominalFreq || 60.0;
+      const freqDev = sim.freq - nominal;
+      const aceMW = -(freqDev * 10 * 12); // Area Control Error (ACE in MW)
+
+      // Calculate dynamic WESM LMP price
+      let wesmLmpPrice = 4850.00;
+      if (sim.trippedPlantMW > 0) {
+        const outageSeverity = Math.min(1.0, sim.trippedPlantMW / 1200);
+        wesmLmpPrice = 4850.00 + outageSeverity * 9500.00;
+      }
+      if (state.nonSpinDeployed > 10) {
+        wesmLmpPrice += (state.nonSpinDeployed / Math.max(10, sim.nonSpinCapacity)) * 6500.00;
+      }
+
+      // Update Terminal Live KPI Bar
+      if (termKpiAgc) {
+        if (Math.abs(freqDev) > 0.20) {
+          termKpiAgc.textContent = "EMERGENCY CORRECTION";
+          termKpiAgc.className = "kpi-val kpi-red";
+        } else if (Math.abs(freqDev) > 0.05) {
+          termKpiAgc.textContent = "RAMPING ACTIVE (4s)";
+          termKpiAgc.className = "kpi-val kpi-amber";
+        } else {
+          termKpiAgc.textContent = "CLOSED-LOOP AUTO (4s)";
+          termKpiAgc.className = "kpi-val kpi-green";
+        }
+      }
+
+      if (termKpiAce) {
+        termKpiAce.textContent = `${aceMW >= 0 ? '+' : ''}${aceMW.toFixed(1)} MW`;
+        termKpiAce.style.color = Math.abs(aceMW) > 50 ? "#EF4444" : (Math.abs(aceMW) > 15 ? "#F59E0B" : "#10B981");
+      }
+
+      if (termKpiLmp) {
+        termKpiLmp.textContent = `₱${wesmLmpPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}/MWh`;
+        termKpiLmp.style.color = wesmLmpPrice > 8000 ? "#EF4444" : (wesmLmpPrice > 5500 ? "#F59E0B" : "#6366F1");
+      }
+
+      if (termKpiRocof) {
+        termKpiRocof.textContent = `${state.rocof >= 0 ? '+' : ''}${state.rocof.toFixed(2)} Hz/s`;
+        termKpiRocof.style.color = Math.abs(state.rocof) > 0.2 ? "#EF4444" : "#F8FAFC";
+      }
+
+      // --- PERIODIC SCADA TELEMETRY LOG BROADCASTS ---
+      // 1. Periodic AGC 4-Second Closed Loop SCADA Telemetry (Every 4.2s)
+      if (sim.time - lastAgcLogTime >= 4.2) {
+        lastAgcLogTime = sim.time;
+        const regPlant = region.plants.reg ? region.plants.reg.name : "Regulating Hydro";
+        const gatePct = Math.min(100, Math.max(20, Math.round(30 + (Math.abs(state.regDeployed) / Math.max(10, sim.regCapacity)) * 70)));
+        
+        if (Math.abs(freqDev) > 0.02) {
+          const regAction = state.regDeployed < -2 ? "REG-DOWN (Lower Gate)" : (state.regDeployed > 2 ? "REG-UP (Raise Gate)" : "REG-HOLD");
+          logTerminal("AGC-PULSE", `⚡ <strong>AGC Loop ${regPlant}</strong>: ${regAction} [${Math.abs(Math.round(state.regDeployed))} MW]. ACE: <strong>${aceMW >= 0 ? '+' : ''}${aceMW.toFixed(1)} MW</strong> | Gate: ${gatePct}% | Δf: ${freqDev >= 0 ? '+' : ''}${freqDev.toFixed(3)} Hz.`, "term-tag-agc");
+        } else {
+          logTerminal("SCADA-EMS", `✓ <strong>AGC Steady-State</strong>: Grid ACE at <strong>${aceMW >= 0 ? '+' : ''}${aceMW.toFixed(1)} MW</strong>. 60.00 Hz nominal tracking normal. Telemetry sync OK.`, "term-tag-scada");
+        }
+      }
+
+      // 2. Periodic WESM 5-Minute RTM Co-Optimization Settlement Log (Every 6.8s)
+      if (sim.time - lastWesmLogTime >= 6.8) {
+        lastWesmLogTime = sim.time;
+        const spinMW = Math.round(state.spinDeployed);
+        const nonSpinMW = Math.round(state.nonSpinDeployed);
+        const ffrMW = Math.round(state.ffrDeployed);
+
+        if (sim.trippedPlantMW > 0 || wesmLmpPrice > 5200) {
+          logTerminal("WESM-RTM", `📈 <strong>WESM 5-Min Co-Opt RTM</strong>: Ex-Ante LMP: <strong class="term-cost">₱${wesmLmpPrice.toFixed(2)}/MWh</strong>. Spin MCPR: ₱${(826 + (spinMW * 4.5)).toFixed(0)}/MWh | Non-Spin Peakers: +${nonSpinMW} MW cleared.`, "term-tag-wesm");
+        } else {
+          logTerminal("WESM-RTM", `📈 <strong>WESM 5-Min Co-Opt RTM</strong>: LMP: <strong class="term-cost">₱${wesmLmpPrice.toFixed(2)}/MWh</strong>. Merit Order Baseload Cleared: 100%. Reserve MCPRs: FFR ₱1,875 | Reg ₱1,361 | Spin ₱826/MWh.`, "term-tag-wesm");
+        }
+      }
+
+      // 3. Periodic Synchrophasor PMU & HVDC Corridor Telemetry Log (Every 9.5s)
+      if (sim.time - lastPmuLogTime >= 9.5) {
+        lastPmuLogTime = sim.time;
+        const busVolt500kV = (515.0 + (Math.sin(sim.time * 0.4) * 3.5)).toFixed(1);
+        const busVolt230kV = (232.0 + (Math.cos(sim.time * 0.6) * 2.2)).toFixed(1);
+        const phaseDeltaDeg = (12.4 + (sim.trippedPlantMW / 120)).toFixed(1);
+
+        if (currentRegionKey === "luzon") {
+          logTerminal("PMU-SCADA", `📡 <strong>PMU Synchrophasor</strong>: San Jose 500kV Bus: <strong>${busVolt500kV} kV</strong> | Dasmariñas 230kV: <strong>${busVolt230kV} kV</strong> | Phase Angle $\\delta$: ${phaseDeltaDeg}° | Leyte-Luzon HVDC: 320 MW transfer.`, "term-tag-pmu");
+        } else if (currentRegionKey === "visayas") {
+          logTerminal("PMU-SCADA", `📡 <strong>PMU Synchrophasor</strong>: Compostela 230kV Bus: <strong>${busVolt230kV} kV</strong> | MVIP Santander HVDC: 250 MW flow | Unified Leyte Geo: 80 MW AGC sync.`, "term-tag-pmu");
+        } else {
+          logTerminal("PMU-SCADA", `📡 <strong>PMU Synchrophasor</strong>: Kauswagan 230kV Bus: <strong>${busVolt230kV} kV</strong> | Lala MVIP Converter: 250 MW export | Agus-Pulangi Hydro: 180 MW online.`, "term-tag-pmu");
+        }
+      }
+
+      // 4. BESS Fast Charging / Discharging Telemetry Broadcast
+      if (Math.abs(state.ffrDeployed) > 10 && (sim.time - lastBessLogTime >= 3.0)) {
+        lastBessLogTime = sim.time;
+        const bessPlant = region.plants.ffr ? region.plants.ffr.name : "BESS Storage";
+        if (state.ffrDeployed < -5) {
+          logTerminal("BESS-FFR", `🔋 <strong>${bessPlant} High-Freq Action</strong>: Absorbing <strong class="term-num">-${Math.abs(Math.round(state.ffrDeployed))} MW</strong> (<200ms). Battery SoC: <strong>${sim.bessSoC.toFixed(1)}%</strong> | Inverter Bus: 825V DC.`, "term-tag-bess");
+        } else {
+          logTerminal("BESS-FFR", `🔋 <strong>${bessPlant} Fast Injection</strong>: Delivering <strong class="term-num">+${Math.round(state.ffrDeployed)} MW</strong> in <200ms. Battery SoC: <strong>${sim.bessSoC.toFixed(1)}%</strong>. Arrested RoCoF.`, "term-tag-bess");
+        }
+      }
 
       // 1. Update Telemetry Readouts
       const metricFreq = document.getElementById("metric-freq");

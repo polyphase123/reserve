@@ -27,16 +27,16 @@ class GridPhysicsSimulator {
     this.ffrCapacity = 150; // MW BESS / FFR
     this.ffrActive = true;
     this.ffrDeployed = 0;
-    this.ffrThreshold = 0.10; // Hz drop trigger (e.g. 59.90 Hz)
-    this.ffrTimeConstant = 0.15; // sec
+    this.ffrThreshold = 0.02; // Hz drop deadband (59.98 Hz / 60.02 Hz per PGC FFR standard)
+    this.ffrTimeConstant = 0.8; // 800ms smooth realistic inverter slew rate
     this.bessSoC = 92.0; // % State of Charge
     this.bessEnergyMWh = 150; // 1-hour C-rate storage base
 
     this.regCapacity = 200; // MW AGC Regulation
     this.regActive = true;
     this.regDeployed = 0;
-    this.agcKp = 0.4;
-    this.agcKi = 0.05;
+    this.agcKp = 0.40;
+    this.agcKi = 0.06;
     this.agcIntegral = 0;
     this.regRampRate = 40; // MW/min
 
@@ -44,8 +44,8 @@ class GridPhysicsSimulator {
     this.spinActive = true;
     this.spinDeployed = 0;
     this.governorDroop = 0.04; // 4% droop
-    this.govTimeConstant = 0.5; // sec
-    this.turbineTimeConstant = 2.5; // sec
+    this.govTimeConstant = 0.8; // sec
+    this.turbineTimeConstant = 2.4; // sec
 
     this.nonSpinCapacity = 300; // MW Quick-Start Peakers
     this.nonSpinActive = false;
@@ -179,12 +179,12 @@ class GridPhysicsSimulator {
   // Smart Adaptive ALD: Sized specifically to restore grid frequency to ~60.00 Hz
   triggerAutoRestore60HzALD() {
     const activeBaseGen = Math.max(0, this.totalGen - this.trippedPlantMW);
-    const activeReserves = this.ffrDeployed + Math.abs(this.regDeployed) + this.spinDeployed + this.nonSpinDeployed;
+    const activeReserves = Math.max(0, this.ffrDeployed) + Math.max(0, this.regDeployed) + this.spinDeployed + this.nonSpinDeployed;
     const totalGenActive = activeBaseGen + activeReserves;
     
     // Calculate required load shed so active generation satisfies demand
     const generationDeficitMW = Math.max(50, this.totalLoad - totalGenActive);
-    const targetShedPct = Math.min(0.50, Math.max(0.08, (generationDeficitMW / this.totalLoad) + 0.015));
+    const targetShedPct = Math.min(0.80, Math.max(0.05, (generationDeficitMW / this.totalLoad) + 0.015));
     
     this.mldTriggered = true;
     this.mldStage = "AUTO-60Hz";
@@ -248,8 +248,13 @@ class GridPhysicsSimulator {
     return this.nonSpinActive;
   }
 
-  // Runge-Kutta 4th Order / Semi-Implicit ODE Step for the Grid Swing Equation
-  step() {
+  // Runge-Kutta / Semi-Implicit ODE Step for the Grid Swing Equation
+  step(dt) {
+    if (typeof dt === "number" && dt > 0 && dt < 0.2) {
+      this.dt = dt;
+    } else {
+      this.dt = 0.05;
+    }
     this.time += this.dt;
     
     // Check for storm gust fluctuations
@@ -260,119 +265,141 @@ class GridPhysicsSimulator {
     }
 
     // Realistic stochastic load fluctuation (Ornstein-Uhlenbeck Process + Micro-Jitter)
-    // Simulates continuous consumer appliance switching & solar PV irradiance variations
     if (typeof this.loadNoiseMW === "undefined") this.loadNoiseMW = 0;
-    const noiseDecay = 0.88; // Mean reversion rate
-    const noiseDiffusion = (Math.random() - 0.5) * (this.totalLoad * 0.0032); // Continuous +/- 0.3% load variation
+    const noiseDecay = 0.88;
+    const noiseDiffusion = (Math.random() - 0.5) * (this.totalLoad * 0.0032);
     this.loadNoiseMW = (this.loadNoiseMW * noiseDecay) + noiseDiffusion;
-    // Multi-frequency harmonic micro-fluctuations (sub-minute industrial & solar ramp ripples)
     const harmonicNoiseMW = (Math.sin(this.time * 0.85) * 0.45 + Math.cos(this.time * 1.45) * 0.35 + Math.sin(this.time * 2.8) * 0.2) * (this.totalLoad * 0.0022);
     const totalStochasticNoiseMW = this.loadNoiseMW + harmonicNoiseMW;
 
-    // Effective generation & load in MW
-    const currentBaseGen = Math.max(0, this.totalGen - (this.trippedPlantMW + stormFluctuationMW));
+    // Nominal surviving baseload & mid-merit generation before governor modulation
+    let currentBaseGen = Math.max(0, this.totalGen - (this.trippedPlantMW + stormFluctuationMW));
+
+    // --- OVER-FREQUENCY GENERATOR ACTION / GOVERNOR DE-LOADING (PGC Section 4.5.2) ---
+    // When frequency rises above 60.02 Hz (due to ALD load shedding or generation surplus),
+    // surviving baseload and mid-merit power plants automatically throttle back their steam/gas turbines
+    if (this.freq > (this.nominalFreq + 0.02) && currentBaseGen > 100) {
+      const freqExcess = this.freq - (this.nominalFreq + 0.02);
+      const pUnitExcess = freqExcess / this.nominalFreq;
+      const govDeloadFraction = Math.min(0.40, (pUnitExcess / this.governorDroop));
+      const govDeloadMW = currentBaseGen * govDeloadFraction;
+      currentBaseGen = Math.max(100, currentBaseGen - govDeloadMW);
+    }
+
     const currentEffectiveLoad = Math.max(100, this.totalLoad - this.mldTrippedLoad + totalStochasticNoiseMW);
-    
-    // 1. Calculate Fast Frequency Response (FFR / BESS)
+    const freqDrop = this.nominalFreq - this.freq; // Positive on under-frequency, Negative on over-frequency
     const isFfrTripped = this.activeOutages.some(p => (p.id || "").toLowerCase().includes("bess") || (p.id || "").toLowerCase().includes("masinloc_bess"));
-    const freqDrop = this.nominalFreq - this.freq;
     
     // Dynamic Battery SoC Available Discharge Factor:
-    // Full 100% capacity when SoC >= 30%; scales down smoothly between 30% and 10%; cut-off at 10% (empty)
     const socAvailableFactor = this.bessSoC <= 10.0 ? 0.0 : Math.min(1.0, Math.max(0.0, (this.bessSoC - 10.0) / 20.0));
     const effectiveFfrCap = (this.ffrActive && !isFfrTripped) ? (this.ffrCapacity * socAvailableFactor) : 0;
 
+    // --- 1. FAST FREQUENCY RESPONSE (BESS FFR - BIDIRECTIONAL DISCHARGE & CHARGE) ---
     let targetFFR = 0;
-    if (effectiveFfrCap > 0 && freqDrop > this.ffrThreshold) {
-      targetFFR = Math.min(effectiveFfrCap, (freqDrop / 0.5) * effectiveFfrCap);
+    if (effectiveFfrCap > 0) {
+      if (freqDrop > this.ffrThreshold) {
+        // Under-frequency (f < 59.98 Hz): Smooth proportional inverter discharge up to +effectiveFfrCap
+        const deltaActive = freqDrop - this.ffrThreshold;
+        targetFFR = Math.min(effectiveFfrCap, (deltaActive / 0.15) * effectiveFfrCap);
+      } else if (freqDrop < -this.ffrThreshold && this.bessSoC < 98.0) {
+        // Over-frequency (f > 60.02 Hz): Smooth fast charging absorption up to -ffrCapacity
+        const overFreq = -freqDrop - this.ffrThreshold;
+        targetFFR = -Math.min(this.ffrCapacity, (overFreq / 0.15) * this.ffrCapacity);
+      }
     }
-    this.ffrDeployed += (targetFFR - this.ffrDeployed) * (this.dt / Math.max(0.05, this.ffrTimeConstant));
-    this.ffrDeployed = Math.max(0, Math.min(effectiveFfrCap, this.ffrDeployed));
+    // Realistic smooth first-order inverter filter (slew rate)
+    const ffrTau = Math.max(0.1, this.ffrTimeConstant);
+    this.ffrDeployed += (targetFFR - this.ffrDeployed) * (this.dt / ffrTau);
+    this.ffrDeployed = Math.max(-this.ffrCapacity, Math.min(effectiveFfrCap, this.ffrDeployed));
 
     // Dynamic Battery State of Charge (SoC %) physics
     if (this.ffrDeployed > 0.5) {
       const dischargeRatePerSec = (this.ffrDeployed / Math.max(10, this.ffrCapacity)) * 0.45;
       this.bessSoC = Math.max(10.0, this.bessSoC - dischargeRatePerSec * this.dt);
-    } else if (Math.abs(freqDrop) < 0.05 && this.bessSoC < 95.0) {
-      // Float recharging when grid is stabilized
+    } else if (this.ffrDeployed < -0.5) {
+      const chargeRatePerSec = (Math.abs(this.ffrDeployed) / Math.max(10, this.ffrCapacity)) * 0.45;
+      this.bessSoC = Math.min(99.0, this.bessSoC + chargeRatePerSec * this.dt);
+    } else if (Math.abs(freqDrop) < 0.02 && this.bessSoC < 95.0) {
       this.bessSoC = Math.min(95.0, this.bessSoC + 0.12 * this.dt);
     }
 
-    // 2. Calculate Primary Governor Droop Response (CR-Spinning)
+    // --- 2. PRIMARY GOVERNOR DROOP RESPONSE (CR-SPINNING) ---
     let targetSpin = 0;
-    if (this.spinActive && freqDrop > 0.02) { // 0.02 Hz deadband
-      const pUnitDrop = freqDrop / this.nominalFreq;
-      targetSpin = (pUnitDrop / this.governorDroop) * this.systemBaseMVA * 0.15;
-      targetSpin = Math.min(this.spinCapacity, targetSpin);
+    if (this.spinActive) {
+      if (freqDrop > 0.02) {
+        // Under-frequency governor boost (Spinning Reserve Headroom)
+        const pUnitDrop = freqDrop / this.nominalFreq;
+        targetSpin = Math.min(this.spinCapacity, (pUnitDrop / this.governorDroop) * this.systemBaseMVA * 0.15);
+      } else {
+        targetSpin = 0; // Governors are back at base setpoint
+      }
     }
     const dSpin = (targetSpin - this.spinDeployed) / (this.govTimeConstant + this.turbineTimeConstant);
     this.spinDeployed += dSpin * this.dt;
     this.spinDeployed = Math.max(0, Math.min(this.spinCapacity, this.spinDeployed));
 
-    // 3. Calculate Secondary Response (AGC Regulation)
+    // --- 3. SECONDARY RESPONSE (AGC REGULATION: REG-UP & REG-DOWN) ---
     if (this.regActive) {
-      if (Math.abs(freqDrop) > 0.015) {
-        const ace = - (freqDrop * 10 * 12);
-        this.agcIntegral += ace * this.dt;
-        this.agcIntegral = Math.max(-400, Math.min(400, this.agcIntegral));
+      // Area Control Error (ACE in MW): Positive when under-frequency (generation deficit), Negative when over-frequency
+      const aceMW = freqDrop * 10 * 18;
+      
+      if (Math.abs(freqDrop) > 0.01) {
+        this.agcIntegral += aceMW * this.dt;
+        this.agcIntegral = Math.max(-this.regCapacity * 2, Math.min(this.regCapacity * 2, this.agcIntegral));
         
-        let targetReg = (this.agcKp * ace) + (this.agcKi * this.agcIntegral);
-        targetReg = Math.max(-this.regCapacity * 0.5, Math.min(this.regCapacity, targetReg));
+        let targetReg = (this.agcKp * aceMW) + (this.agcKi * this.agcIntegral);
+        // Bidirectional: Can provide Regulation-Down (-regCapacity) or Regulation-Up (+regCapacity)
+        targetReg = Math.max(-this.regCapacity, Math.min(this.regCapacity, targetReg));
         
-        const maxRampStep = (this.regRampRate / 60) * this.dt;
-        const regDiff = targetReg - this.regDeployed;
-        if (Math.abs(regDiff) > maxRampStep) {
-          this.regDeployed += Math.sign(regDiff) * maxRampStep;
-        } else {
-          this.regDeployed = targetReg;
-        }
+        // Smooth realistic hydro wicket gate slew dynamic (~3.5s time constant)
+        const regTau = 3.5;
+        const dReg = (targetReg - this.regDeployed) / regTau;
+        this.regDeployed += dReg * this.dt;
+        this.regDeployed = Math.max(-this.regCapacity, Math.min(this.regCapacity, this.regDeployed));
       } else {
-        // Within deadband: smoothly decay integral to avoid offset
-        this.agcIntegral *= 0.94;
-        this.regDeployed *= 0.94;
+        this.agcIntegral *= 0.98;
+        this.regDeployed *= 0.98;
         if (Math.abs(this.regDeployed) < 0.2) this.regDeployed = 0;
       }
     } else {
       this.regDeployed = 0;
+      this.agcIntegral = 0;
     }
 
-    // 4. Calculate Tertiary Response (Non-Spinning Peakers & Peaking Fleet)
-    // Auto-dispatch mode (ENABLED BY DEFAULT): NGCP SCADA automatically starts and ramps peakers
-    // whenever an actual plant trip occurs, frequency drops below 59.92 Hz, or spinning reserves become heavily loaded.
+    // --- 4. TERTIARY RESPONSE (NON-SPINNING PEAKERS) ---
     if (this.nonSpinAutoMode) {
-      const needsPeakers = (this.trippedPlantMW > 50) || 
-                           (this.spinDeployed > this.spinCapacity * 0.45) || 
-                           (this.freq < (this.nominalFreq - 0.08));
+      const needsPeakers = (this.trippedPlantMW > 100 && this.freq <= (this.nominalFreq - 0.05)) || 
+                           (this.spinDeployed > this.spinCapacity * 0.60) || 
+                           (this.freq < (this.nominalFreq - 0.12));
+
+      // Over-frequency or stabilized: Shut down peakers smoothly
+      const peakersShouldStop = (this.freq >= (this.nominalFreq + 0.02)) || 
+                                (this.trippedPlantMW === 0 && Math.abs(this.freq - this.nominalFreq) < 0.03 && this.spinDeployed < 15);
 
       if (needsPeakers) {
         if (!this.nonSpinActive) {
           this.nonSpinActive = true;
           this.history.events.push({
             time: this.time,
-            text: `🚀 AUTO-DISPATCH ACTIVE: NGCP SCADA automatically started Tertiary Peakers (+${this.nonSpinCapacity} MW) to replace lost generation and restore spinning headroom.`
+            text: `🚀 AUTO-DISPATCH ACTIVE: NGCP SCADA automatically started Tertiary Peakers (+${this.nonSpinCapacity} MW) to replace lost generation.`
           });
         }
-      } else if (this.trippedPlantMW === 0 && Math.abs(this.freq - this.nominalFreq) < 0.03 && this.spinDeployed < 15) {
+      } else if (peakersShouldStop) {
         if (this.nonSpinActive) {
           this.nonSpinActive = false;
-          this.history.events.push({
-            time: this.time,
-            text: `✓ AUTO-STANDBY: Grid stabilized. Tertiary Peakers automatically ramping down to cold standby readiness.`
-          });
         }
       }
     }
 
-    if (this.nonSpinActive) {
+    if (this.nonSpinActive && this.freq < (this.nominalFreq + 0.05)) {
       this.nonSpinTimer += this.dt;
-      // Fast start and synchronization over 2.5 seconds
       const targetMW = this.trippedPlantMW > 0 ? Math.min(this.nonSpinCapacity, this.trippedPlantMW) : this.nonSpinCapacity;
-      const rampFraction = Math.min(1.0, this.nonSpinTimer / 2.5);
+      const rampFraction = Math.min(1.0, this.nonSpinTimer / 8.0);
       this.nonSpinDeployed = targetMW * rampFraction;
     } else {
       if (this.nonSpinDeployed > 0) {
-        this.nonSpinTimer = Math.max(0, this.nonSpinTimer - this.dt * 1.5);
-        this.nonSpinDeployed = Math.max(0, this.nonSpinCapacity * (this.nonSpinTimer / 2.5));
+        this.nonSpinTimer = Math.max(0, this.nonSpinTimer - this.dt * 4.0);
+        this.nonSpinDeployed = Math.max(0, this.nonSpinCapacity * (this.nonSpinTimer / 8.0));
       } else {
         this.nonSpinTimer = 0;
         this.nonSpinDeployed = 0;
@@ -396,44 +423,72 @@ class GridPhysicsSimulator {
     this.freq += rocof * this.dt;
     this.deltaFreq = this.freq - this.nominalFreq;
 
-    // Auto-60Hz ALD Protection (DEFAULT ACTIVE):
-    // If enabled, automatically drops exact proportional demand to arrest frequency decay and restore ~60.00 Hz
+    // --- 5. ADAPTIVE AUTO-60Hz ALD PROTECTION & AUTO-RECLOSE FEEDERS ---
     if (this.autoAldMode) {
-      const needsAutoAld = (this.freq < (this.nominalFreq - 0.45)) || 
-                           (this.trippedPlantMW >= 300 && this.freq < (this.nominalFreq - 0.25) && rocof < -0.03);
-      if (needsAutoAld && (!this.mldTriggered || this.mldStage === 0 || this.mldStage === 1)) {
-        this.triggerAutoRestore60HzALD();
+      const activeTotalGen = currentBaseGen + Math.max(0, this.ffrDeployed) + this.spinDeployed + Math.max(0, this.regDeployed) + this.nonSpinDeployed;
+      const genDeficitMW = this.totalLoad - activeTotalGen;
+      const totalReserveCap = (this.ffrCapacity || 150) + (this.regCapacity || 200) + (this.spinCapacity || 400) + (this.nonSpinCapacity || 300);
+
+      // ALD is emergency protection: triggers only if frequency falls below 59.20 Hz or catastrophic outage exceeds reserves
+      const isSevereEmergency = (this.freq < (this.nominalFreq - 0.80)) || 
+                               (this.trippedPlantMW > totalReserveCap && this.freq < (this.nominalFreq - 0.40));
+
+      if (isSevereEmergency) {
+        const requiredShedMW = Math.max(100, genDeficitMW + Math.max(0, this.nominalFreq - this.freq) * (this.totalLoad / this.nominalFreq) * 1.8);
+        const targetShedPct = Math.min(0.85, Math.max(0.10, requiredShedMW / this.totalLoad));
+        
+        if (targetShedPct > (this.mldPercentage + 0.02) || !this.mldTriggered) {
+          this.mldTriggered = true;
+          this.mldStage = "AUTO-60Hz";
+          this.mldPercentage = targetShedPct;
+          this.mldTrippedLoad = this.totalLoad * targetShedPct;
+          this.history.events.push({
+            time: this.time,
+            text: `🚨 EMERGENCY ALD SHED @ ${this.freq.toFixed(2)} Hz: -${this.mldTrippedLoad.toFixed(0)} MW (${(targetShedPct * 100).toFixed(0)}%) dropped to arrest grid collapse!`
+          });
+        }
+      } 
+      // Case B: Generation surplus / Frequency recovered -> Auto-Reclose Feeders smoothly!
+      else if (this.mldTrippedLoad > 0 && this.freq >= (this.nominalFreq - 0.05)) {
+        const restoreStepMW = Math.max(8, (this.freq - (this.nominalFreq - 0.05)) * 250 * this.dt);
+        this.mldTrippedLoad = Math.max(0, this.mldTrippedLoad - restoreStepMW);
+        this.mldPercentage = this.mldTrippedLoad / this.totalLoad;
+        if (this.mldTrippedLoad < 15) {
+          this.restoreALD();
+        }
       }
     }
 
-    // Automatic Under-Frequency Load Shedding (UFLS) Multi-Stage Protection
+    // --- 6. AUTOMATIC UNDER-FREQUENCY LOAD SHEDDING (UFLS) MULTI-STAGE HARD BACKUP ---
     const uflsThreshold1 = this.nominalFreq === 60.0 ? 59.10 : 49.10;
     const uflsThreshold2 = this.nominalFreq === 60.0 ? 58.80 : 48.80;
     const uflsThreshold3 = this.nominalFreq === 60.0 ? 58.50 : 48.50;
 
-    let newUflsStage = 0;
+    let hardUflsStage = 0;
     if (this.freq < uflsThreshold3) {
-      newUflsStage = 3;
+      hardUflsStage = 3;
     } else if (this.freq < uflsThreshold2) {
-      newUflsStage = 2;
+      hardUflsStage = 2;
     } else if (this.freq < uflsThreshold1) {
-      newUflsStage = 1;
+      hardUflsStage = 1;
     }
 
-    // If manual MLD is active, don't downgrade, but allow UFLS to escalate if worse
-    if (newUflsStage > 0 && typeof this.mldStage === "number" && newUflsStage > this.mldStage) {
-      this.mldStage = newUflsStage;
-      this.mldTriggered = true;
+    if (hardUflsStage > 0) {
       const stagePcts = { 1: 0.15, 2: 0.30, 3: 0.45 };
-      this.mldPercentage = stagePcts[newUflsStage];
-      this.mldTrippedLoad = this.totalLoad * this.mldPercentage;
+      const minRequiredShed = this.totalLoad * stagePcts[hardUflsStage];
+      if (this.mldTrippedLoad < minRequiredShed) {
+        this.mldStage = hardUflsStage;
+        this.mldTriggered = true;
+        this.mldPercentage = stagePcts[hardUflsStage];
+        this.mldTrippedLoad = minRequiredShed;
 
-      if (this.mldStage > this.lastMldLoggedStage) {
-        this.lastMldLoggedStage = this.mldStage;
-        this.history.events.push({
-          time: this.time,
-          text: `⚡ UFLS STAGE ${this.mldStage} ACTIVATED @ ${this.freq.toFixed(2)} Hz: ${(this.mldPercentage * 100).toFixed(0)}% Load Dropped (-${this.mldTrippedLoad.toFixed(0)} MW) to protect system!`
-        });
+        if (hardUflsStage > this.lastMldLoggedStage) {
+          this.lastMldLoggedStage = hardUflsStage;
+          this.history.events.push({
+            time: this.time,
+            text: `⚡ HARD UFLS STAGE ${hardUflsStage} ACTIVATED @ ${this.freq.toFixed(2)} Hz: ${(stagePcts[hardUflsStage] * 100).toFixed(0)}% Load Dropped (-${minRequiredShed.toFixed(0)} MW) to arrest grid collapse!`
+          });
+        }
       }
     }
 

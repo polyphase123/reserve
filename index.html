@@ -906,24 +906,94 @@
            TAB 4: 📟 SCADA EMS & WESM DISPATCH TERMINAL LOG
            =================================================================== -->
       <section id="tab-log" class="tab-pane" style="display: none;">
-        <div class="card" style="margin-bottom: 0;">
-          <div class="card-mini-header">
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span class="dot-indicator dot-green"></span>
-              <span class="card-mini-title">SCADA EMS & WESM Dispatch Terminal</span>
+        <div class="card" style="margin-bottom: 0; border-left: 4px solid #0284C7;">
+          
+          <!-- Terminal Header & Action Controls -->
+          <div class="card-mini-header" style="flex-wrap: wrap; gap: 6px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span class="dot-indicator dot-green" id="terminal-live-dot"></span>
+                <h2 class="card-mini-title">SCADA EMS & WESM Dispatch Terminal</h2>
+              </div>
+              <span style="font-size: 10px; color: #64748b;">NGCP SCADA/AGC Telemetry • WESM 5-Min RTM Co-Optimization • ERC Audit Trail</span>
             </div>
-            <button id="btn-clear-terminal" class="btn btn-xs btn-outline">Clear Log</button>
+
+            <!-- Action Buttons -->
+            <div class="terminal-action-group">
+              <button id="btn-pause-terminal" class="btn btn-xs btn-outline" title="Pause live telemetry feed">
+                <span id="term-pause-icon">⏸</span> <span id="term-pause-label">Pause</span>
+              </button>
+              <button id="btn-copy-terminal" class="btn btn-xs btn-outline" title="Copy terminal logs to clipboard">
+                📋 Copy
+              </button>
+              <button id="btn-export-terminal" class="btn btn-xs btn-outline" title="Export logs as CSV/Text file">
+                💾 Export
+              </button>
+              <button id="btn-clear-terminal" class="btn btn-xs btn-outline" title="Clear terminal screen">
+                🗑 Clear
+              </button>
+            </div>
           </div>
 
-          <div class="terminal-container">
-            <div class="terminal-header-bar">
-              <span>NGCP EMS SCADA TELEMETRY // WESM RTM AUDIT STREAM</span>
-              <span id="terminal-clock">T+0.0s</span>
+          <!-- Live SCADA Telemetry KPI Bar -->
+          <div class="terminal-kpi-bar">
+            <div class="terminal-kpi-item">
+              <span class="kpi-label">SCADA / AGC:</span>
+              <span id="term-kpi-agc" class="kpi-val kpi-green">CLOSED-LOOP (4s)</span>
             </div>
-            <div id="terminal-body" class="terminal-body">
-              <!-- Live log lines stream dynamically -->
+            <div class="terminal-kpi-item">
+              <span class="kpi-label">ACE Deviation:</span>
+              <span id="term-kpi-ace" class="kpi-val">0.0 MW</span>
+            </div>
+            <div class="terminal-kpi-item">
+              <span class="kpi-label">WESM LMP:</span>
+              <span id="term-kpi-lmp" class="kpi-val" style="color: #6366F1;">₱4,850.00/MWh</span>
+            </div>
+            <div class="terminal-kpi-item">
+              <span class="kpi-label">RoCoF PMU:</span>
+              <span id="term-kpi-rocof" class="kpi-val">+0.00 Hz/s</span>
             </div>
           </div>
+
+          <!-- Stream Filter Chips & Search Bar -->
+          <div class="terminal-filter-toolbar">
+            <div class="terminal-filter-chips">
+              <button class="btn-term-filter active" data-filter="all">ALL (<span id="count-log-all">0</span>)</button>
+              <button class="btn-term-filter" data-filter="scada">⚡ SCADA / AGC</button>
+              <button class="btn-term-filter" data-filter="wesm">📈 WESM & LMP</button>
+              <button class="btn-term-filter" data-filter="alert">🚨 OUTAGES & TRIPS</button>
+              <button class="btn-term-filter" data-filter="bess">🔋 BESS & RESERVES</button>
+              <button class="btn-term-filter" data-filter="ald">💡 ALD & UFLS</button>
+              <button class="btn-term-filter" data-filter="erc">⚖️ ERC AUDIT</button>
+            </div>
+
+            <div class="terminal-search-wrap">
+              <input type="text" id="terminal-search-input" class="terminal-search-input" placeholder="🔍 Search SCADA telemetry, breaker IDs, LMPs, Dockets..." />
+              <button id="btn-term-search-clear" class="btn-search-clear" title="Clear search">&times;</button>
+            </div>
+          </div>
+
+          <!-- Main Terminal Box -->
+          <div class="terminal-container">
+            <div class="terminal-header-bar">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="terminal-sys-title">NGCP EMS TELEMETRY & WESM AUDIT STREAM</span>
+                <span id="terminal-filter-label" class="badge badge-blue" style="font-size: 8px; padding: 1px 4px;">FILTER: ALL</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span id="terminal-line-counter" style="font-size: 8.5px; color: #64748B;">0 events</span>
+                <span id="terminal-clock" class="terminal-clock-badge">T+0.0s</span>
+              </div>
+            </div>
+            <div id="terminal-body" class="terminal-body">
+              <!-- Live SCADA / WESM log lines stream dynamically -->
+            </div>
+            <div class="terminal-footer-bar">
+              <span id="terminal-status-msg">● Telemetry Stream Active (200ms cyclic rate)</span>
+              <span id="terminal-autoscroll-badge" class="badge badge-green" style="font-size: 8px; cursor: pointer;" title="Click to toggle auto-scroll">AUTOSCROLL: ON</span>
+            </div>
+          </div>
+
         </div>
       </section>
 
