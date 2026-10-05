@@ -366,22 +366,23 @@ class GridPhysicsSimulator {
       this.agcIntegral = 0;
     }
 
-    // --- 4. TERTIARY RESPONSE (NON-SPINNING PEAKERS) ---
+    // --- 4. TERTIARY RESPONSE (NON-SPINNING PEAKERS: CRANK -> SYNC -> RAMP) ---
     if (this.nonSpinAutoMode) {
-      const needsPeakers = (this.trippedPlantMW > 100 && this.freq <= (this.nominalFreq - 0.05)) || 
-                           (this.spinDeployed > this.spinCapacity * 0.60) || 
-                           (this.freq < (this.nominalFreq - 0.12));
+      const needsPeakers = (this.trippedPlantMW > 150 && this.freq <= (this.nominalFreq - 0.04)) || 
+                           (this.spinDeployed > this.spinCapacity * 0.65) || 
+                           (this.trippedPlantMW > 300) ||
+                           (this.freq < (this.nominalFreq - 0.15));
 
-      // Over-frequency or stabilized: Shut down peakers smoothly
+      // Over-frequency or stabilized with low spinning demand: Shut down peakers smoothly
       const peakersShouldStop = (this.freq >= (this.nominalFreq + 0.02)) || 
-                                (this.trippedPlantMW === 0 && Math.abs(this.freq - this.nominalFreq) < 0.03 && this.spinDeployed < 15);
+                                (this.trippedPlantMW === 0 && Math.abs(this.freq - this.nominalFreq) < 0.03 && this.spinDeployed < 20);
 
       if (needsPeakers) {
         if (!this.nonSpinActive) {
           this.nonSpinActive = true;
           this.history.events.push({
             time: this.time,
-            text: `🚀 AUTO-DISPATCH ACTIVE: NGCP SCADA automatically started Tertiary Peakers (+${this.nonSpinCapacity} MW) to replace lost generation.`
+            text: `🚀 AUTO-START SIGNAL: NGCP SCADA dispatched Tertiary Peakers (+${this.nonSpinCapacity} MW). Cranking and synchronizing...`
           });
         }
       } else if (peakersShouldStop) {
@@ -391,15 +392,29 @@ class GridPhysicsSimulator {
       }
     }
 
+    // Realistic Quick-Start Peaker Physics (4.5s crank/sync delay, then 16s smooth electrical ramp)
     if (this.nonSpinActive && this.freq < (this.nominalFreq + 0.05)) {
       this.nonSpinTimer += this.dt;
       const targetMW = this.trippedPlantMW > 0 ? Math.min(this.nonSpinCapacity, this.trippedPlantMW) : this.nonSpinCapacity;
-      const rampFraction = Math.min(1.0, this.nonSpinTimer / 8.0);
-      this.nonSpinDeployed = targetMW * rampFraction;
+      
+      if (this.nonSpinTimer < 4.5) {
+        // Phase 1: Cranking & accelerating to 750 RPM (Delivered electrical MW = 0)
+        this.nonSpinDeployed = 0;
+      } else {
+        // Phase 2: Generator breaker 52G closed -> Smooth 16s ramp-up
+        const rampFraction = Math.min(1.0, (this.nonSpinTimer - 4.5) / 16.0);
+        this.nonSpinDeployed = targetMW * rampFraction;
+      }
     } else {
-      if (this.nonSpinDeployed > 0) {
-        this.nonSpinTimer = Math.max(0, this.nonSpinTimer - this.dt * 4.0);
-        this.nonSpinDeployed = Math.max(0, this.nonSpinCapacity * (this.nonSpinTimer / 8.0));
+      // Phase 3: Smooth de-loading over 12s when shutdown signal given
+      if (this.nonSpinDeployed > 0 || this.nonSpinTimer > 0) {
+        this.nonSpinTimer = Math.max(0, this.nonSpinTimer - this.dt * 2.0);
+        if (this.nonSpinTimer < 4.5) {
+          this.nonSpinDeployed = 0;
+          this.nonSpinTimer = 0;
+        } else {
+          this.nonSpinDeployed = Math.max(0, this.nonSpinCapacity * ((this.nonSpinTimer - 4.5) / 16.0));
+        }
       } else {
         this.nonSpinTimer = 0;
         this.nonSpinDeployed = 0;

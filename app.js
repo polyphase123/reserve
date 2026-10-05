@@ -1370,19 +1370,51 @@ document.addEventListener("DOMContentLoaded", () => {
     const peakerRpmText = document.getElementById("peaker-rpm-text");
 
     if (meterNonSpin) meterNonSpin.style.width = nonSpinCap > 0 ? ((state.nonSpinDeployed / nonSpinCap) * 100).toFixed(0) + "%" : "0%";
-    if (statNonSpinVal) statNonSpinVal.textContent = Math.round(state.nonSpinDeployed) + " MW";
-    if (statNonSpinMax) statNonSpinMax.textContent = nonSpinCap + " MW Cap";
-    if (badgeNonSpin) badgeNonSpin.textContent = state.nonSpinDeployed > 10 ? "DISPATCHED" : "AUTO STANDBY";
+    
+    const isPeakerCranking = sim.nonSpinActive && (sim.nonSpinTimer < 4.5);
+    const isPeakerGenerating = state.nonSpinDeployed > 0;
+    const isPeakerRunning = isPeakerCranking || isPeakerGenerating || sim.nonSpinActive;
 
-    const isPeakerRunning = (state.nonSpinDeployed > 6) || sim.nonSpinActive;
+    if (statNonSpinVal) {
+      if (isPeakerCranking) {
+        statNonSpinVal.textContent = "0 MW (Syncing)";
+      } else {
+        statNonSpinVal.textContent = Math.round(state.nonSpinDeployed) + " MW";
+      }
+    }
+    if (statNonSpinMax) statNonSpinMax.textContent = nonSpinCap + " MW Cap";
+    
+    if (badgeNonSpin) {
+      if (isPeakerCranking) {
+        badgeNonSpin.textContent = "CRANK / SYNC";
+        badgeNonSpin.className = "badge badge-amber";
+      } else if (state.nonSpinDeployed >= (nonSpinCap * 0.85)) {
+        badgeNonSpin.textContent = "FULL DISPATCH";
+        badgeNonSpin.className = "badge badge-green";
+      } else if (state.nonSpinDeployed > 0) {
+        badgeNonSpin.textContent = "RAMPING UP";
+        badgeNonSpin.className = "badge badge-green";
+      } else {
+        badgeNonSpin.textContent = "AUTO STANDBY";
+        badgeNonSpin.className = "badge badge-amber";
+      }
+    }
+
     if (piston1 && piston2 && spark1 && spark2 && peakerRpmText) {
       if (isPeakerRunning) {
         piston1.className = "mini-piston piston-active-1";
         piston2.className = "mini-piston piston-active-2";
         spark1.className = "mini-spark spark-flash-1";
         spark2.className = "mini-spark spark-flash-2";
-        peakerRpmText.textContent = "750 RPM (RUN)";
-        peakerRpmText.style.color = "#F59E0B";
+        
+        if (isPeakerCranking) {
+          const currentRpm = Math.min(750, Math.round((sim.nonSpinTimer / 4.5) * 750));
+          peakerRpmText.textContent = `${currentRpm} RPM (CRANK)`;
+          peakerRpmText.style.color = "#F59E0B";
+        } else {
+          peakerRpmText.textContent = "750 RPM (RUN)";
+          peakerRpmText.style.color = "#10B981";
+        }
       } else {
         piston1.className = "mini-piston";
         piston2.className = "mini-piston";
