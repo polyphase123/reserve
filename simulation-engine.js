@@ -59,8 +59,9 @@ class GridPhysicsSimulator {
     this.activeContingency = null;
 
     // Load Dropping: UFLS (Automatic) & MLD (Manual Load Dropping)
+    this.autoAldMode = true; // Auto-60Hz Adaptive ALD enabled by default
     this.mldTriggered = false;
-    this.mldStage = 0; // 0 = Normal, 1 = UFLS Stage 1, 2 = UFLS Stage 2, 3 = UFLS Stage 3, 'MANUAL' = Manual MLD
+    this.mldStage = 0; // 0 = Normal, 1 = UFLS Stage 1, 2 = UFLS Stage 2, 3 = UFLS Stage 3, 'AUTO-60Hz' = Smart ALD
     this.mldTrippedLoad = 0;
     this.mldPercentage = 0;
     this.lastMldLoggedStage = 0;
@@ -161,24 +162,51 @@ class GridPhysicsSimulator {
     this.activeContingency = null;
   }
 
-  // Automatic Load Dropping (ALD / UFLS) & Manual Load Shedding
+  // Automatic Load Dropping (ALD / UFLS) & Auto-Restore 60Hz Methods
   triggerALD(stage = 1) {
     this.mldTriggered = true;
     this.mldStage = stage;
-    const stagePcts = { 1: 0.10, 2: 0.20, 3: 0.30 };
-    const pct = stagePcts[stage] || (typeof stage === "number" ? stage : 0.10);
+    const stagePcts = { 1: 0.15, 2: 0.30, 3: 0.45 };
+    const pct = typeof stage === "number" && stage < 1.0 ? stage : (stagePcts[stage] || 0.15);
     this.mldPercentage = pct;
     this.mldTrippedLoad = this.totalLoad * pct;
     this.history.events.push({
       time: this.time,
-      text: `🚨 AUTOMATIC LOAD DROPPING (ALD Stage ${stage}): Shed ${(pct * 100).toFixed(0)}% grid demand (-${this.mldTrippedLoad.toFixed(0)} MW) to arrest frequency decay!`
+      text: `🚨 AUTOMATIC LOAD DROPPING (ALD Stage ${typeof stage === "number" && stage < 1.0 ? (pct * 100).toFixed(0) + '%' : stage}): Shed ${(pct * 100).toFixed(0)}% grid demand (-${this.mldTrippedLoad.toFixed(0)} MW) to arrest frequency decay!`
     });
+  }
+
+  // Smart Adaptive ALD: Sized specifically to restore grid frequency to ~60.00 Hz
+  triggerAutoRestore60HzALD() {
+    const activeBaseGen = Math.max(0, this.totalGen - this.trippedPlantMW);
+    const activeReserves = this.ffrDeployed + Math.abs(this.regDeployed) + this.spinDeployed + this.nonSpinDeployed;
+    const totalGenActive = activeBaseGen + activeReserves;
+    
+    // Calculate required load shed so active generation satisfies demand
+    const generationDeficitMW = Math.max(50, this.totalLoad - totalGenActive);
+    const targetShedPct = Math.min(0.50, Math.max(0.08, (generationDeficitMW / this.totalLoad) + 0.015));
+    
+    this.mldTriggered = true;
+    this.mldStage = "AUTO-60Hz";
+    this.mldPercentage = targetShedPct;
+    this.mldTrippedLoad = this.totalLoad * targetShedPct;
+    
+    this.history.events.push({
+      time: this.time,
+      text: `🎯 AUTO-RESTORE 60Hz ALD: Dropped ${(targetShedPct * 100).toFixed(1)}% demand (-${this.mldTrippedLoad.toFixed(0)} MW) to balance system at 60.00 Hz!`
+    });
+    return targetShedPct;
   }
 
   // Manual Load Dropping (MLD) / ALD Trigger
   triggerManualMLD(pct = 0.15) {
-    const stage = pct >= 0.20 ? 2 : 1;
-    this.triggerALD(stage);
+    this.triggerALD(pct);
+  }
+
+  // Automatic ALD Mode Toggle
+  toggleAutoAldMode() {
+    this.autoAldMode = !this.autoAldMode;
+    return this.autoAldMode;
   }
 
   // Restore Dropped Load (Reclose Feeders)
@@ -368,6 +396,16 @@ class GridPhysicsSimulator {
     this.freq += rocof * this.dt;
     this.deltaFreq = this.freq - this.nominalFreq;
 
+    // Auto-60Hz ALD Protection (DEFAULT ACTIVE):
+    // If enabled, automatically drops exact proportional demand to arrest frequency decay and restore ~60.00 Hz
+    if (this.autoAldMode) {
+      const needsAutoAld = (this.freq < (this.nominalFreq - 0.45)) || 
+                           (this.trippedPlantMW >= 300 && this.freq < (this.nominalFreq - 0.25) && rocof < -0.03);
+      if (needsAutoAld && (!this.mldTriggered || this.mldStage === 0 || this.mldStage === 1)) {
+        this.triggerAutoRestore60HzALD();
+      }
+    }
+
     // Automatic Under-Frequency Load Shedding (UFLS) Multi-Stage Protection
     const uflsThreshold1 = this.nominalFreq === 60.0 ? 59.10 : 49.10;
     const uflsThreshold2 = this.nominalFreq === 60.0 ? 58.80 : 48.80;
@@ -386,7 +424,7 @@ class GridPhysicsSimulator {
     if (newUflsStage > 0 && typeof this.mldStage === "number" && newUflsStage > this.mldStage) {
       this.mldStage = newUflsStage;
       this.mldTriggered = true;
-      const stagePcts = { 1: 0.10, 2: 0.20, 3: 0.30 };
+      const stagePcts = { 1: 0.15, 2: 0.30, 3: 0.45 };
       this.mldPercentage = stagePcts[newUflsStage];
       this.mldTrippedLoad = this.totalLoad * this.mldPercentage;
 

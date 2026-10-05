@@ -13,6 +13,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let waveformPhase = 0;
   let activeScopeView = "wave"; // "wave" or "trend"
   let selectedMonthlyKWh = 200;
+  let smoothedFreqMin = 59.85;
+  let smoothedFreqMax = 60.15;
 
   // Cumulative Payouts & Penalties in PHP
   const sessionFinancials = {
@@ -254,6 +256,7 @@ document.addEventListener("DOMContentLoaded", () => {
       badge.textContent = "0 MW TRIPPED";
     }
     updateCardTripButtonsUI();
+    renderFleetDirectory();
   }
 
   // --- REGIONAL GRID SELECTOR LOGIC ---
@@ -276,6 +279,8 @@ document.addEventListener("DOMContentLoaded", () => {
     sim.systemBaseMVA = region.baseDemandMW * 1.35;
     sim.clearContingency();
     sim.restoreMLD();
+    smoothedFreqMin = 59.85;
+    smoothedFreqMax = 60.15;
 
     // Scale Reserves for Regional Grid size
     if (regionKey === "luzon") {
@@ -308,11 +313,21 @@ document.addEventListener("DOMContentLoaded", () => {
     if (p.spin && document.getElementById("plant-name-spin")) document.getElementById("plant-name-spin").textContent = `⚡ ${p.spin.name}`;
     if (p.nonspin && document.getElementById("plant-name-nonspin")) document.getElementById("plant-name-nonspin").textContent = `🚢 ${p.nonspin.name}`;
 
-    // Update Specific Plant Names in Active Reserves Reaction Boxes
+    // Update Specific Plant Names & Million Profit Values in Active Reserves Reaction Boxes
+    const ffrM = (sim.ffrCapacity * 1350000 / 1000000).toFixed(1);
+    const regM = (sim.regCapacity * 980000 / 1000000).toFixed(1);
+    const spinM = (sim.spinCapacity * 595000 / 1000000).toFixed(1);
+    const nonSpinM = (sim.nonSpinCapacity * 680000 / 1000000).toFixed(1);
+
     if (p.ffr && document.getElementById("res-plant-name-ffr")) document.getElementById("res-plant-name-ffr").textContent = `${p.ffr.name} (${p.ffr.capacityMW} MW)`;
     if (p.reg && document.getElementById("res-plant-name-reg")) document.getElementById("res-plant-name-reg").textContent = `${p.reg.name} (${p.reg.capacityMW} MW)`;
     if (p.spin && document.getElementById("res-plant-name-spin")) document.getElementById("res-plant-name-spin").textContent = `${p.spin.name} (${p.spin.capacityMW} MW)`;
     if (p.nonspin && document.getElementById("res-plant-name-nonspin")) document.getElementById("res-plant-name-nonspin").textContent = `${p.nonspin.name} (${p.nonspin.capacityMW} MW)`;
+
+    if (document.getElementById("profit-val-ffr")) document.getElementById("profit-val-ffr").textContent = `₱${ffrM}M/mo`;
+    if (document.getElementById("profit-val-reg")) document.getElementById("profit-val-reg").textContent = `₱${regM}M/mo`;
+    if (document.getElementById("profit-val-spin")) document.getElementById("profit-val-spin").textContent = `₱${spinM}M/mo`;
+    if (document.getElementById("profit-val-nonspin")) document.getElementById("profit-val-nonspin").textContent = `₱${nonSpinM}M/mo`;
 
     // Update Vertical Stack Bar Sub-Labels
     const shortName = (name) => name ? name.split(" ")[0].replace(/[^a-zA-Z0-9]/g, "") : "";
@@ -354,9 +369,261 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (targetTabId === "tab-sim") {
         setTimeout(resizeCanvases, 50);
+      } else if (targetTabId === "tab-fleet") {
+        renderFleetDirectory();
       }
       playBeep(540, "sine", 0.06);
     });
+  });
+
+  // --- EXTENSIVE FLEET DIRECTORY CONTROLLER (TAB 2) ---
+  let fleetActiveRegionFilter = "all";
+  let fleetActiveTechFilter = "all";
+  let fleetSearchQuery = "";
+
+  function getAllPhilippineFleetUnits() {
+    const list = [];
+
+    // Luzon
+    if (typeof REGIONAL_POWER_PLANTS !== "undefined" && REGIONAL_POWER_PLANTS.luzon) {
+      REGIONAL_POWER_PLANTS.luzon.forEach(p => list.push({ ...p, regionKey: "luzon", regionName: "Luzon" }));
+    }
+    // Visayas
+    if (typeof REGIONAL_POWER_PLANTS !== "undefined" && REGIONAL_POWER_PLANTS.visayas) {
+      REGIONAL_POWER_PLANTS.visayas.forEach(p => list.push({ ...p, regionKey: "visayas", regionName: "Visayas" }));
+    }
+    // Mindanao
+    if (typeof REGIONAL_POWER_PLANTS !== "undefined" && REGIONAL_POWER_PLANTS.mindanao) {
+      REGIONAL_POWER_PLANTS.mindanao.forEach(p => list.push({ ...p, regionKey: "mindanao", regionName: "Mindanao" }));
+    }
+    // HVDC Interconnections
+    if (typeof HVDC_SYSTEMS !== "undefined") {
+      if (HVDC_SYSTEMS.mvip) {
+        list.push({
+          id: HVDC_SYSTEMS.mvip.id,
+          name: "⚡ " + HVDC_SYSTEMS.mvip.name,
+          mw: HVDC_SYSTEMS.mvip.capacityMW,
+          category: "HVDC Subsea Link",
+          fuel: "±350 kV DC Submarine Transmission",
+          owner: "NGCP (National Grid Corp of the Philippines)",
+          location: "Mindanao ⇄ Visayas (Bohol Sea Subsea Cable)",
+          defaultRate: "₱0.0485/kWh",
+          ercCaseNumber: HVDC_SYSTEMS.mvip.ercCaseNumber,
+          ercApprovalType: HVDC_SYSTEMS.mvip.ercApprovalType,
+          ercRate: HVDC_SYSTEMS.mvip.ercRate,
+          ercOutageCapDays: HVDC_SYSTEMS.mvip.ercOutageCapDays,
+          ercShowCauseOrder: HVDC_SYSTEMS.mvip.ercShowCauseOrder,
+          ercPenaltyBase: HVDC_SYSTEMS.mvip.ercPenaltyBase,
+          unexcusedPenaltyPerHour: HVDC_SYSTEMS.mvip.unexcusedPenaltyPerHour,
+          aspaCategory: HVDC_SYSTEMS.mvip.aspaCategory,
+          statutoryNotes: HVDC_SYSTEMS.mvip.summary,
+          regionKey: "hvdc",
+          regionName: "HVDC Link"
+        });
+      }
+      if (HVDC_SYSTEMS.leyte_luzon) {
+        list.push({
+          id: HVDC_SYSTEMS.leyte_luzon.id,
+          name: "⚡ " + HVDC_SYSTEMS.leyte_luzon.name,
+          mw: HVDC_SYSTEMS.leyte_luzon.capacityMW,
+          category: "HVDC Subsea Link",
+          fuel: "±350 kV DC Subsea Transmission",
+          owner: "NGCP (National Grid Corp of the Philippines)",
+          location: "Leyte ⇄ Luzon (San Bernardino Strait)",
+          defaultRate: "₱0.0392/kWh",
+          ercCaseNumber: HVDC_SYSTEMS.leyte_luzon.ercCaseNumber,
+          ercApprovalType: HVDC_SYSTEMS.leyte_luzon.ercApprovalType,
+          ercRate: HVDC_SYSTEMS.leyte_luzon.ercRate,
+          ercOutageCapDays: HVDC_SYSTEMS.leyte_luzon.ercOutageCapDays,
+          ercShowCauseOrder: HVDC_SYSTEMS.leyte_luzon.ercShowCauseOrder,
+          ercPenaltyBase: HVDC_SYSTEMS.leyte_luzon.ercPenaltyBase,
+          unexcusedPenaltyPerHour: HVDC_SYSTEMS.leyte_luzon.unexcusedPenaltyPerHour,
+          aspaCategory: HVDC_SYSTEMS.leyte_luzon.aspaCategory,
+          statutoryNotes: HVDC_SYSTEMS.leyte_luzon.summary,
+          regionKey: "hvdc",
+          regionName: "HVDC Link"
+        });
+      }
+    }
+
+    return list;
+  }
+
+  function renderFleetDirectory() {
+    const grid = document.getElementById("fleet-directory-grid");
+    if (!grid) return;
+
+    const allUnits = getAllPhilippineFleetUnits();
+    const query = (fleetSearchQuery || "").toLowerCase().trim();
+
+    const filtered = allUnits.filter(u => {
+      // 1. Region filter
+      if (fleetActiveRegionFilter !== "all") {
+        if (fleetActiveRegionFilter === "hvdc") {
+          if (u.regionKey !== "hvdc") return false;
+        } else if (u.regionKey !== fleetActiveRegionFilter) {
+          return false;
+        }
+      }
+
+      // 2. Tech / Category filter
+      if (fleetActiveTechFilter !== "all") {
+        const cat = (u.category || "").toLowerCase();
+        const fuel = (u.fuel || "").toLowerCase();
+        const name = (u.name || "").toLowerCase();
+
+        if (fleetActiveTechFilter === "coal") {
+          if (!fuel.includes("coal") && !cat.includes("coal") && !cat.includes("supercritical")) return false;
+        } else if (fleetActiveTechFilter === "gas") {
+          if (!fuel.includes("gas") && !fuel.includes("lng") && !cat.includes("ccgt") && !cat.includes("gas")) return false;
+        } else if (fleetActiveTechFilter === "hydro") {
+          if (!fuel.includes("hydro") && !cat.includes("hydro")) return false;
+        } else if (fleetActiveTechFilter === "geo") {
+          if (!fuel.includes("geo") && !cat.includes("geo")) return false;
+        } else if (fleetActiveTechFilter === "bess") {
+          if (!fuel.includes("bess") && !fuel.includes("battery") && !cat.includes("ffr") && !name.includes("bess")) return false;
+        } else if (fleetActiveTechFilter === "peaker") {
+          if (!fuel.includes("diesel") && !cat.includes("peaking") && !cat.includes("peaker") && !name.includes("peaker") && !fuel.includes("bunker") && !name.includes("barge")) return false;
+        }
+      }
+
+      // 3. Search query filter
+      if (query.length > 0) {
+        const matchStr = `${u.name} ${u.owner} ${u.location} ${u.fuel} ${u.category} ${u.ercCaseNumber} ${u.aspaCategory || ""}`.toLowerCase();
+        if (!matchStr.includes(query)) return false;
+      }
+
+      return true;
+    });
+
+    // Update Fleet count badge
+    const countBadge = document.getElementById("fleet-count-badge");
+    if (countBadge) {
+      countBadge.textContent = `${filtered.length} of ${allUnits.length} Units`;
+    }
+
+    grid.innerHTML = "";
+
+    if (filtered.length === 0) {
+      grid.innerHTML = `
+        <div style="grid-column: 1 / -1; padding: 24px 12px; text-align: center; color: #64748B; background: #F8FAFC; border-radius: 6px; border: 1px dashed #CBD5E1;">
+          <div style="font-size: 20px; margin-bottom: 4px;">🔍</div>
+          <div style="font-size: 11.5px; font-weight: 700; color: #334155;">No matching power plants found</div>
+          <div style="font-size: 9.5px; color: #94A3B8; margin-top: 2px;">Try clearing filters or searching for different terms like "Dinginin", "Magat", "BESS", or "ERC".</div>
+        </div>
+      `;
+      return;
+    }
+
+    filtered.forEach(unit => {
+      const isTripped = sim.activeOutages.some(p => p.id === unit.id);
+      const card = document.createElement("div");
+      card.className = `fleet-unit-card ${isTripped ? "is-tripped" : ""}`;
+      
+      let regClass = "badge-reg-luzon";
+      if (unit.regionKey === "visayas") regClass = "badge-reg-visayas";
+      if (unit.regionKey === "mindanao") regClass = "badge-reg-mindanao";
+      if (unit.regionKey === "hvdc") regClass = "badge-reg-hvdc";
+
+      const shortDocket = unit.ercCaseNumber ? unit.ercCaseNumber.replace("ERC Case No. ", "ERC ") : "ERC Docket";
+      const capDays = unit.ercOutageCapDays ? `${unit.ercOutageCapDays}d Outage Cap/yr` : "ERC Regulated";
+
+      card.innerHTML = `
+        <div class="fleet-unit-top">
+          <div class="fleet-unit-title">${unit.name}</div>
+          <div class="fleet-unit-badges">
+            <span class="badge-unit-cap">${unit.mw} MW</span>
+            <span class="badge-unit-region ${regClass}">${unit.regionName}</span>
+          </div>
+        </div>
+
+        <div class="fleet-unit-meta">
+          <div><strong>Owner:</strong> ${unit.owner || "Independent Power Producer"}</div>
+          <div><strong>Location:</strong> ${unit.location}</div>
+          <div><strong>Technology:</strong> ${unit.fuel || unit.category}</div>
+        </div>
+
+        <div class="fleet-unit-role">
+          ${unit.aspaCategory || unit.category || "WESM Scheduled Facility"}
+        </div>
+
+        <div class="fleet-unit-erc">
+          <span>⚖️ ${shortDocket}</span>
+          <span>${capDays}</span>
+        </div>
+
+        <div class="fleet-unit-actions">
+          <button class="btn-fleet-trip ${isTripped ? 'btn-restore' : 'btn-danger'}">
+            ${isTripped ? '🔄 RESTORE TO GRID' : '⚡ CLICK TO TRIP'}
+          </button>
+          <button class="btn-fleet-dossier" onclick="event.stopPropagation(); window.openPlantModal('${unit.id}');">
+            ⚖️ View Dossier
+          </button>
+        </div>
+      `;
+
+      // Wire Trip / Restore button
+      const tripBtn = card.querySelector(".btn-fleet-trip");
+      if (tripBtn) {
+        tripBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const currentlyTripped = sim.activeOutages.some(p => p.id === unit.id);
+          if (currentlyTripped) {
+            sim.untripPlant(unit.id);
+            logTerminal("PLANT-RESTORE", `✓ <strong>${unit.name}</strong> restored & resynchronized (+${unit.mw} MW).`, "term-tag-info");
+            playBeep(520, "sine", 0.12);
+          } else {
+            sim.tripPlant(unit);
+            logTerminal("PLANT-TRIP", `💥 <strong>${unit.name}</strong> FORCED OUTAGE (-${unit.mw} MW)! Total Lost: <strong>-${sim.trippedPlantMW} MW</strong>.`, "term-tag-alert");
+            logTerminal("ERC-AUDIT", `⚖️ Unplanned trip under <strong>${unit.ercCaseNumber || "ERC Res 10-2020"}</strong>. Fine: ₱${(unit.unexcusedPenaltyPerHour || 125000).toLocaleString()}/hr.`, "term-tag-erc");
+            playBeep(180, "sawtooth", 0.45);
+          }
+          updateTrippedBadge();
+          renderRegionalOutageButtons(currentRegionKey);
+          renderFleetDirectory();
+        });
+      }
+
+      grid.appendChild(card);
+    });
+  }
+
+  // Wire Fleet Directory Region Filter Chips
+  document.querySelectorAll(".btn-fleet-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".btn-fleet-chip").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      fleetActiveRegionFilter = btn.getAttribute("data-fleet-region") || "all";
+      renderFleetDirectory();
+      playBeep(520, "sine", 0.06);
+    });
+  });
+
+  // Wire Fleet Directory Tech / Category Filter Chips
+  document.querySelectorAll(".btn-tech-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".btn-tech-chip").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      fleetActiveTechFilter = btn.getAttribute("data-tech") || "all";
+      renderFleetDirectory();
+      playBeep(500, "sine", 0.06);
+    });
+  });
+
+  // Wire Fleet Search Input & Clear
+  const fleetSearchInput = document.getElementById("fleet-search-input");
+  fleetSearchInput?.addEventListener("input", (e) => {
+    fleetSearchQuery = e.target.value;
+    renderFleetDirectory();
+  });
+
+  document.getElementById("btn-fleet-search-clear")?.addEventListener("click", () => {
+    if (fleetSearchInput) {
+      fleetSearchInput.value = "";
+      fleetSearchQuery = "";
+      renderFleetDirectory();
+      playBeep(480, "sine", 0.06);
+    }
   });
 
   // --- 1. OSCILLOSCOPE AC WAVEFORM RENDERER ---
@@ -431,7 +698,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // --- 2. FREQUENCY TRAJECTORY CHART RENDERER ---
+  // --- 2. ADAPTIVE FREQUENCY TRAJECTORY CHART RENDERER ---
   function drawFreqHistoryChart() {
     if (!freqCtx || !freqCanvas) return;
     
@@ -454,54 +721,145 @@ document.addEventListener("DOMContentLoaded", () => {
     const history = sim.history;
     const count = history && history.freq ? history.freq.length : 0;
     const nominal = sim.nominalFreq || 60.0;
-    const minF = nominal - 1.2;
-    const maxF = nominal + 0.3;
 
-    const leftPad = 28;
-    const getY = (f) => displayH - ((f - minF) / (maxF - minF)) * (displayH - 14) - 7;
-    const getX = (idx) => (idx / Math.max(1, count - 1)) * (displayW - (leftPad + 6)) + leftPad;
+    // 1. Dynamic Window & Range Analysis
+    let minData = (typeof sim.freq === "number" && !isNaN(sim.freq)) ? sim.freq : nominal;
+    let maxData = minData;
 
-    // Normal Band Zone (59.90 to 60.10 Hz)
-    const yUpperNorm = getY(nominal + 0.1);
-    const yLowerNorm = getY(nominal - 0.1);
-    freqCtx.fillStyle = "rgba(16, 185, 129, 0.12)";
-    freqCtx.fillRect(leftPad, yUpperNorm, displayW - leftPad, yLowerNorm - yUpperNorm);
-
-    // UFLS Line (59.10 Hz)
-    const yUFLS = getY(59.1);
-    freqCtx.strokeStyle = "rgba(239, 68, 68, 0.7)";
-    freqCtx.lineWidth = 1;
-    freqCtx.setLineDash([3, 2]);
-    freqCtx.beginPath();
-    freqCtx.moveTo(leftPad, yUFLS);
-    freqCtx.lineTo(displayW, yUFLS);
-    freqCtx.stroke();
-    freqCtx.setLineDash([]);
-
-    // Y Axis Ticks
-    freqCtx.fillStyle = "#94A3B8";
-    freqCtx.font = "8.5px ui-monospace, monospace";
-    freqCtx.textAlign = "right";
-    for (let f = minF; f <= maxF + 0.001; f += 0.5) {
-      const y = getY(f);
-      freqCtx.fillText(f.toFixed(1), leftPad - 3, y + 2.5);
+    if (count > 0) {
+      // Analyze recent trajectory window (last 160 points / ~8s)
+      const windowSize = Math.min(count, 160);
+      const startIdx = count - windowSize;
+      for (let i = startIdx; i < count; i++) {
+        const val = history.freq[i];
+        if (typeof val === "number" && !isNaN(val)) {
+          if (val < minData) minData = val;
+          if (val > maxData) maxData = val;
+        }
+      }
     }
 
+    // Adaptive zoom: minimum span of 0.16 Hz around current frequency to magnify subtle waveforms & ripples
+    const rawSpan = maxData - minData;
+    const targetSpan = Math.max(0.16, rawSpan * 1.32);
+    const center = (minData + maxData) / 2;
+
+    const targetMin = center - (targetSpan / 2);
+    const targetMax = center + (targetSpan / 2);
+
+    // Fast-expand on sudden drops/trips, smooth glide during recovery
+    const lerpSpeed = (targetMin < smoothedFreqMin || targetMax > smoothedFreqMax) ? 0.22 : 0.08;
+    smoothedFreqMin += (targetMin - smoothedFreqMin) * lerpSpeed;
+    smoothedFreqMax += (targetMax - smoothedFreqMax) * lerpSpeed;
+
+    // Constrain within physical bounds
+    const minF = Math.max(50.0, smoothedFreqMin);
+    const maxF = Math.min(65.0, Math.max(minF + 0.10, smoothedFreqMax));
+    const range = maxF - minF;
+
+    // 2. Adaptive Step Sizing and Decimal Formatting
+    let step = 0.50;
+    let precision = 1;
+
+    if (range <= 0.22) {
+      step = 0.05;
+      precision = 2;
+    } else if (range <= 0.50) {
+      step = 0.10;
+      precision = 2;
+    } else if (range <= 1.20) {
+      step = 0.20;
+      precision = 1;
+    } else if (range <= 2.40) {
+      step = 0.50;
+      precision = 1;
+    } else {
+      step = 1.00;
+      precision = 1;
+    }
+
+    const leftPad = precision === 2 ? 34 : 28;
+    const topPad = 6;
+    const botPad = 6;
+    const usableH = displayH - (topPad + botPad);
+    const usableW = displayW - (leftPad + 6);
+
+    const getY = (f) => displayH - botPad - ((f - minF) / (maxF - minF)) * usableH;
+    const getX = (idx) => (idx / Math.max(1, count - 1)) * usableW + leftPad;
+
+    // 3. Highlight PGC Normal Operating Band (59.90 to 60.10 Hz)
+    const normTop = nominal + 0.10;
+    const normBot = nominal - 0.10;
+    const visibleNormTop = Math.min(maxF, normTop);
+    const visibleNormBot = Math.max(minF, normBot);
+
+    if (visibleNormTop > visibleNormBot) {
+      const yTop = getY(visibleNormTop);
+      const yBot = getY(visibleNormBot);
+      freqCtx.fillStyle = "rgba(16, 185, 129, 0.09)";
+      freqCtx.fillRect(leftPad, yTop, displayW - leftPad, Math.max(1, yBot - yTop));
+    }
+
+    // 4. Highlight Under-Frequency Load Shedding (UFLS) Threshold
+    const uflsVal = nominal === 60.0 ? 59.10 : 49.10;
+    if (uflsVal >= minF && uflsVal <= maxF) {
+      const yUFLS = getY(uflsVal);
+      freqCtx.strokeStyle = "rgba(239, 68, 68, 0.70)";
+      freqCtx.lineWidth = 1;
+      freqCtx.setLineDash([3, 2]);
+      freqCtx.beginPath();
+      freqCtx.moveTo(leftPad, yUFLS);
+      freqCtx.lineTo(displayW, yUFLS);
+      freqCtx.stroke();
+      freqCtx.setLineDash([]);
+
+      freqCtx.fillStyle = "rgba(239, 68, 68, 0.85)";
+      freqCtx.font = "7.5px ui-monospace, monospace";
+      freqCtx.textAlign = "right";
+      freqCtx.fillText(`UFLS ${uflsVal.toFixed(1)}`, displayW - 4, yUFLS - 2);
+    }
+
+    // 5. Adaptive Dynamic Y-Axis Ticks & Gridlines
+    const startTick = Math.ceil((minF + 0.0001) / step) * step;
+    freqCtx.font = "8px ui-monospace, monospace";
+    freqCtx.textAlign = "right";
+
+    for (let f = startTick; f <= maxF - 0.0001; f += step) {
+      const y = getY(f);
+      if (y >= topPad + 2 && y <= displayH - botPad - 2) {
+        const isNominal = Math.abs(f - nominal) < 0.0001;
+
+        // Subtle horizontal guide line
+        freqCtx.strokeStyle = isNominal ? "rgba(16, 185, 129, 0.30)" : "rgba(255, 255, 255, 0.06)";
+        freqCtx.lineWidth = isNominal ? 1.0 : 0.6;
+        freqCtx.beginPath();
+        freqCtx.moveTo(leftPad, y);
+        freqCtx.lineTo(displayW, y);
+        freqCtx.stroke();
+
+        // Tick Label text
+        freqCtx.fillStyle = isNominal ? "#10B981" : "#94A3B8";
+        freqCtx.fillText(f.toFixed(precision), leftPad - 3, y + 2.5);
+      }
+    }
+
+    // 6. Real-Time Frequency Trajectory Curve
     if (count >= 1) {
       const currentF = history.freq[count - 1];
-      let strokeCol = "#10B981";
-      if (currentF < 59.8) strokeCol = "#EF4444";
-      else if (currentF < 59.95) strokeCol = "#F59E0B";
+      let strokeCol = "#10B981"; // Green normal
+      if (currentF < (nominal - 0.20)) strokeCol = "#EF4444"; // Red alert
+      else if (currentF < (nominal - 0.05) || currentF > (nominal + 0.05)) strokeCol = "#F59E0B"; // Amber
 
       freqCtx.shadowColor = strokeCol;
       freqCtx.shadowBlur = 4;
       freqCtx.strokeStyle = strokeCol;
       freqCtx.lineWidth = 1.8;
       freqCtx.beginPath();
+
       let lastX = leftPad, lastY = getY(history.freq[0]);
       for (let i = 0; i < count; i++) {
         const x = getX(i);
-        const y = getY(history.freq[i]);
+        const y = Math.max(topPad - 2, Math.min(displayH - botPad + 2, getY(history.freq[i])));
         if (i === 0) freqCtx.moveTo(x, y);
         else freqCtx.lineTo(x, y);
         lastX = x;
@@ -509,10 +867,19 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       freqCtx.stroke();
 
+      // Glowing Trajectory Head Dot
+      freqCtx.shadowBlur = 6;
+      freqCtx.shadowColor = "#FFFFFF";
       freqCtx.fillStyle = "#FFFFFF";
       freqCtx.beginPath();
       freqCtx.arc(lastX, lastY, 2.5, 0, 2 * Math.PI);
       freqCtx.fill();
+    }
+
+    // 7. Update Header Badge with Dynamic Scale Readout
+    const chartBadge = document.getElementById("freq-chart-badge");
+    if (chartBadge) {
+      chartBadge.textContent = `Span: ±${((maxF - minF) / 2).toFixed(2)}Hz`;
     }
 
     freqCtx.restore();
@@ -615,10 +982,25 @@ document.addEventListener("DOMContentLoaded", () => {
         metricAldStageLbl.style.color = "#64748B";
       }
     }
+    const aldAutoDot = document.getElementById("ald-auto-dot");
+    const aldAutoBtnLabel = document.getElementById("ald-auto-btn-label");
+    if (aldAutoBtnLabel && aldAutoDot) {
+      if (sim.autoAldMode) {
+        aldAutoBtnLabel.textContent = isAldActive ? `Auto-60Hz: -${droppedMW}M` : "Auto-60Hz: ON";
+        aldAutoDot.className = "dot-indicator dot-green";
+      } else {
+        aldAutoBtnLabel.textContent = "Auto-60Hz: OFF";
+        aldAutoDot.className = "dot-indicator dot-amber";
+      }
+    }
+
     if (aldActiveBadge) {
       if (isAldActive) {
         aldActiveBadge.className = "badge badge-red";
-        aldActiveBadge.textContent = typeof sim.mldStage === "number" ? `🚨 ALD STAGE ${sim.mldStage} ACTIVE` : "🚨 ALD ACTIVE";
+        aldActiveBadge.textContent = sim.mldStage === "AUTO-60Hz" ? "🎯 AUTO-60Hz ACTIVE" : (typeof sim.mldStage === "number" ? `🚨 ALD STAGE ${sim.mldStage} ACTIVE` : "🚨 ALD ACTIVE");
+      } else if (sim.autoAldMode) {
+        aldActiveBadge.className = "badge badge-green";
+        aldActiveBadge.textContent = "AUTO-60Hz ARMED";
       } else {
         aldActiveBadge.className = "badge badge-green";
         aldActiveBadge.textContent = "ARMED (59.10 Hz)";
@@ -762,6 +1144,22 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
+    // Dynamic Revenue & Profit Millions Updates for the 4 Reserve Tiers
+    const ffrBaseM = (sim.ffrCapacity * 1350000 / 1000000).toFixed(1);
+    const regBaseM = (sim.regCapacity * 980000 / 1000000).toFixed(1);
+    const spinBaseM = (sim.spinCapacity * 595000 / 1000000).toFixed(1);
+    const nonSpinBaseM = (sim.nonSpinCapacity * 680000 / 1000000).toFixed(1);
+
+    const profitFfr = document.getElementById("profit-val-ffr");
+    const profitReg = document.getElementById("profit-val-reg");
+    const profitSpin = document.getElementById("profit-val-spin");
+    const profitNonSpin = document.getElementById("profit-val-nonspin");
+
+    if (profitFfr) profitFfr.textContent = state.ffrDeployed > 5 ? `₱${ffrBaseM}M + ₱${(state.ffrDeployed * 5.5).toFixed(0)}k/h` : `₱${ffrBaseM}M/mo`;
+    if (profitReg) profitReg.textContent = Math.abs(state.regDeployed) > 5 ? `₱${regBaseM}M + ₱${(Math.abs(state.regDeployed) * 3.5).toFixed(0)}k/h` : `₱${regBaseM}M/mo`;
+    if (profitSpin) profitSpin.textContent = state.spinDeployed > 5 ? `₱${spinBaseM}M + ₱${(state.spinDeployed * 4.5).toFixed(0)}k/h` : `₱${spinBaseM}M/mo`;
+    if (profitNonSpin) profitNonSpin.textContent = state.nonSpinDeployed > 5 ? `₱${nonSpinBaseM}M + ₱${(state.nonSpinDeployed * 7.2).toFixed(0)}k/h` : `₱${nonSpinBaseM}M/mo`;
+
     // Auto Peaker Dispatch Status Button
     const peakerAutoDot = document.getElementById("peaker-auto-dot");
     const peakerAutoBtnLabel = document.getElementById("peaker-auto-btn-label");
@@ -875,11 +1273,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- 4. RESIDENTIAL BILL IMPACT CALCULATOR (TAB 3) ---
   function updateBillImpactCalculator(state) {
     const kwh = selectedMonthlyKWh;
-    const BASE_TOTAL_RATE = 11.6000;
-    const BASE_GEN = 6.5500;
-    const BASE_AS = 0.1420;
-    const BASE_DIST = 3.6500;
-    const BASE_TAX = 1.2580;
+    const BASE_TOTAL_RATE = 11.7882;
+    const BASE_GEN = 6.8900;
+    const BASE_AS = 0.4850;
+    const BASE_DIST = 2.8500;
+    const BASE_TAX = 1.1082;
     const BASE_MONTHLY_BILL = kwh * BASE_TOTAL_RATE;
 
     const baseASHourly = (sim.ffrCapacity * 1875.00) + (sim.regCapacity * 1361.11) + (sim.spinCapacity * 826.39) + (sim.nonSpinCapacity * 861.11);
@@ -931,7 +1329,7 @@ document.addEventListener("DOMContentLoaded", () => {
       billIncreasePct.style.color = deltaMonthlyBill > 1 ? "#9F1239" : "#047857";
     }
     if (billTotalAmount) billTotalAmount.textContent = `₱${currentMonthlyBill.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    if (billBaseAmount) billBaseAmount.textContent = `Base: ₱${BASE_MONTHLY_BILL.toFixed(2)} (@ ₱11.60/kWh)`;
+    if (billBaseAmount) billBaseAmount.textContent = `Base: ₱${BASE_MONTHLY_BILL.toFixed(2)} (@ ₱${BASE_TOTAL_RATE.toFixed(4)}/kWh)`;
     if (billEffectiveRate) billEffectiveRate.textContent = `₱${currentTotalRate.toFixed(4)} / kWh`;
     if (billRateDiff) {
       billRateDiff.textContent = deltaTotalRate > 0.0001 ? `+₱${deltaTotalRate.toFixed(4)}/kWh surge` : `Normal tariff benchmark`;
@@ -1017,6 +1415,26 @@ document.addEventListener("DOMContentLoaded", () => {
         else if (cat.includes("hydro") || cat.includes("reg")) legalRole = "reg";
         else if (cat.includes("spin")) legalRole = "spin";
         else legalRole = "baseload";
+      } else if (typeof HVDC_SYSTEMS !== "undefined" && HVDC_SYSTEMS[plantOrKey]) {
+        const hvdc = HVDC_SYSTEMS[plantOrKey];
+        plant = {
+          name: hvdc.name,
+          owner: "National Grid Corporation of the Philippines (NGCP)",
+          location: hvdc.location || (hvdc.fromStation + " ⇄ " + hvdc.toStation),
+          region: "One Grid Philippines (HVDC Link)",
+          type: "±350 kV DC Subsea Transmission",
+          capacityMW: hvdc.capacityMW,
+          ercCaseNumber: hvdc.ercCaseNumber,
+          ercApprovalType: hvdc.ercApprovalType,
+          ercRate: hvdc.ercRate,
+          wesmRole: hvdc.aspaCategory,
+          ercOutageCapDays: hvdc.ercOutageCapDays || 7.5,
+          ercShowCauseOrder: hvdc.ercShowCauseOrder,
+          ercPenaltyBase: hvdc.ercPenaltyBase,
+          unexcusedPenaltyPerHour: hvdc.unexcusedPenaltyPerHour,
+          statutoryNotes: hvdc.summary
+        };
+        legalRole = "hvdc";
       } else {
         plant = region.plants.baseload;
         legalRole = "baseload";
@@ -1182,16 +1600,33 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Automatic Load Dropping (ALD / UFLS) Triggers & Feeder Restoration
+  document.getElementById("btn-toggle-auto-ald")?.addEventListener("click", () => {
+    const isAuto = sim.toggleAutoAldMode();
+    if (isAuto) {
+      logTerminal("ALD-AUTO", `🎯 <strong>Auto-60Hz ALD Protection ENABLED</strong> (Default). SCADA will automatically shed exact deficit to maintain 60.00 Hz.`, "term-tag-info");
+      playBeep(520, "sine", 0.12);
+    } else {
+      logTerminal("ALD-MANUAL", `⚠️ <strong>Auto-60Hz ALD DISABLED</strong>. Switched to stepped manual protection.`, "term-tag-dispatch");
+      playBeep(440, "sine", 0.12);
+    }
+  });
+
   document.getElementById("btn-ald-stage-1")?.addEventListener("click", () => {
     sim.triggerALD(1);
-    logTerminal("ALD-DISPATCH", `🚨 <strong>ALD STAGE 1 EXECUTED</strong>: 10% demand dropped (-${Math.round(sim.mldTrippedLoad)} MW) across feeders.`, "term-tag-alert");
+    logTerminal("ALD-DISPATCH", `🚨 <strong>ALD STAGE 1 EXECUTED</strong>: 15% demand dropped (-${Math.round(sim.mldTrippedLoad)} MW) across feeders.`, "term-tag-alert");
     playBeep(140, "sawtooth", 0.5);
   });
 
   document.getElementById("btn-ald-stage-2")?.addEventListener("click", () => {
     sim.triggerALD(2);
-    logTerminal("ALD-DISPATCH", `🚨 <strong>ALD STAGE 2 EXECUTED</strong>: 20% demand dropped (-${Math.round(sim.mldTrippedLoad)} MW) across feeders.`, "term-tag-alert");
+    logTerminal("ALD-DISPATCH", `🚨 <strong>ALD STAGE 2 EXECUTED</strong>: 30% demand dropped (-${Math.round(sim.mldTrippedLoad)} MW) across feeders.`, "term-tag-alert");
     playBeep(120, "sawtooth", 0.6);
+  });
+
+  document.getElementById("btn-ald-auto-60")?.addEventListener("click", () => {
+    const shedPct = sim.triggerAutoRestore60HzALD();
+    logTerminal("ALD-SMART", `🎯 <strong>AUTO-RESTORE 60Hz ALD</strong>: Dropped ${(shedPct * 100).toFixed(1)}% demand (-${Math.round(sim.mldTrippedLoad)} MW) to restore 60.00 Hz nominal grid frequency!`, "term-tag-alert");
+    playBeep(320, "sine", 0.35);
   });
 
   document.getElementById("btn-restore-ald")?.addEventListener("click", () => {
@@ -1234,6 +1669,8 @@ document.addEventListener("DOMContentLoaded", () => {
     sessionFinancials.nonSpinPaid = 0;
     sessionFinancials.ercPenaltyAccrued = 0;
     sessionFinancials.currentPenaltyRatePerHour = 0;
+    smoothedFreqMin = 59.85;
+    smoothedFreqMax = 60.15;
     setRegionalGrid(currentRegionKey);
     logTerminal("RESET", `✓ Entire grid simulation reset to 60.00 Hz steady-state for ${currentRegionKey.toUpperCase()}.`, "term-tag-info");
     playBeep(440, "sine", 0.1);
@@ -1335,5 +1772,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initial Load
   setRegionalGrid("luzon");
+  renderFleetDirectory();
   requestAnimationFrame(loop);
 });

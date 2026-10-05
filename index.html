@@ -115,7 +115,7 @@
           <div class="card scope-instrument-card">
             <div class="scope-card-header">
               <span class="scope-card-title">📈 Frequency Trajectory</span>
-              <span class="scope-normal-badge">60 FPS Physics</span>
+              <span id="freq-chart-badge" class="scope-normal-badge">Adaptive Auto-Scale</span>
             </div>
             <div class="scope-canvas-wrap">
               <canvas id="freqHistoryCanvas"></canvas>
@@ -157,9 +157,15 @@
             <div class="ald-header-row">
               <div class="ald-title-wrap">
                 <span class="ald-title">⚡ Automatic Load Dropping (ALD / UFLS)</span>
-                <span class="ald-subtitle">PGC Grid Defense • Dynamic Demand Readout</span>
+                <span class="ald-subtitle">PGC Grid Defense • Adaptive 60Hz Target</span>
               </div>
-              <span id="ald-active-badge" class="badge badge-green">ARMED (59.10 Hz)</span>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <button id="btn-toggle-auto-ald" class="btn btn-xs btn-outline" style="padding: 2px 6px; font-size: 8.5px;" title="Toggle Auto-60Hz Adaptive Load Dropping (Enabled by default)">
+                  <span id="ald-auto-dot" class="dot-indicator dot-green"></span>
+                  <span id="ald-auto-btn-label">Auto-60Hz: ON</span>
+                </button>
+                <span id="ald-active-badge" class="badge badge-green">AUTO ARMED</span>
+              </div>
             </div>
 
             <!-- Dynamic System Demand & ALD Shed Readout Card -->
@@ -182,11 +188,14 @@
 
             <!-- Quick ALD Trigger & Restore Buttons -->
             <div class="quick-ald-row">
-              <button id="btn-ald-stage-1" class="btn btn-xs btn-ald-stage" title="Trigger ALD Stage 1 (10% Load Drop @ 59.10 Hz)">
-                🚨 ALD 10% (59.10Hz)
+              <button id="btn-ald-auto-60" class="btn btn-xs btn-ald-smart" title="Execute adaptive load drop sized to retain ~60.00 Hz">
+                🎯 Auto-60Hz ALD
               </button>
-              <button id="btn-ald-stage-2" class="btn btn-xs btn-ald-stage" title="Trigger ALD Stage 2 (20% Load Drop @ 58.80 Hz)">
-                🚨 ALD 20% (58.80Hz)
+              <button id="btn-ald-stage-1" class="btn btn-xs btn-ald-stage" title="Trigger ALD Stage 1 (15% Load Drop @ 59.10 Hz)">
+                🚨 ALD 15% (Stg 1)
+              </button>
+              <button id="btn-ald-stage-2" class="btn btn-xs btn-ald-stage" title="Trigger ALD Stage 2 (30% Load Drop @ 58.80 Hz)">
+                🚨 ALD 30% (Stg 2)
               </button>
               <button id="btn-restore-ald" class="btn btn-xs btn-outline btn-ald-restore" title="Reclose Feeders & Restore Demand">
                 🔄 Restore Load
@@ -202,7 +211,7 @@
               <span style="font-size: 14px;">🛡️</span>
               <div>
                 <span class="card-mini-title">Active ASPA Reserves Reaction</span>
-                <div style="font-size: 9px; color: var(--text-muted); font-weight: 700;">PGC STATUTORY TIERS: PRIMARY • SECONDARY • TERTIARY</div>
+                <div style="font-size: 9px; color: var(--text-muted); font-weight: 700;">PGC STATUTORY TIERS • ERC CONTRACT REVENUE</div>
               </div>
             </div>
             <span class="badge badge-wesm">WESM CO-OPTIMIZED</span>
@@ -245,6 +254,11 @@
               <div class="res-mini-vals">
                 <span id="stat-ffr-val">0 MW</span>
                 <span id="stat-ffr-max">150 MW Cap</span>
+              </div>
+              <!-- Reserve Profit / Revenue Row -->
+              <div class="res-profit-banner">
+                <span class="res-profit-lbl">💰 ASPA Revenue</span>
+                <span id="profit-val-ffr" class="res-profit-num">₱202.5M/mo</span>
               </div>
             </div>
 
@@ -293,6 +307,11 @@
               <div class="res-mini-vals">
                 <span id="stat-reg-val">0 MW</span>
                 <span id="stat-reg-max">200 MW Cap</span>
+              </div>
+              <!-- Reserve Profit / Revenue Row -->
+              <div class="res-profit-banner">
+                <span class="res-profit-lbl">💰 ASPA Revenue</span>
+                <span id="profit-val-reg" class="res-profit-num">₱196.0M/mo</span>
               </div>
             </div>
 
@@ -343,6 +362,11 @@
                 <span id="stat-spin-val">0 MW</span>
                 <span id="stat-spin-max">400 MW Cap</span>
               </div>
+              <!-- Reserve Profit / Revenue Row -->
+              <div class="res-profit-banner">
+                <span class="res-profit-lbl">💰 ASPA Revenue</span>
+                <span id="profit-val-spin" class="res-profit-num">₱238.0M/mo</span>
+              </div>
             </div>
 
             <!-- Reserve 4: Non-Spin Peakers (Tertiary Reserve) -->
@@ -392,6 +416,11 @@
               <div class="res-mini-vals">
                 <span id="stat-nonspin-val">0 MW</span>
                 <span id="stat-nonspin-max">300 MW Cap</span>
+              </div>
+              <!-- Reserve Profit / Revenue Row -->
+              <div class="res-profit-banner">
+                <span class="res-profit-lbl">💰 ASPA Revenue</span>
+                <span id="profit-val-nonspin" class="res-profit-num">₱204.0M/mo</span>
               </div>
             </div>
           </div>
@@ -496,12 +525,12 @@
       </section>
 
       <!-- ===================================================================
-           TAB 2: 🧱 POWER PLANTS & RESERVES SPECIFICATIONS
+           TAB 2: 🧱 POWER PLANTS & EXTENSIVE FLEET DIRECTORY
            =================================================================== -->
       <section id="tab-fleet" class="tab-pane" style="display: none;">
         
         <!-- Capacity Stack Overview Bar -->
-        <div class="card" style="margin-bottom: 12px;">
+        <div class="card" style="margin-bottom: 8px;">
           <div class="card-mini-header">
             <h2 class="card-mini-title">🧱 Generation & Reserve Stack Capacity</h2>
             <span id="wesm-region-badge" class="badge badge-wesm">WESM RTM</span>
@@ -524,7 +553,7 @@
           </div>
         </div>
 
-        <!-- 7 CAPACITY BLOCK CARDS -->
+        <!-- 7 CORE DYNAMIC CAPACITY CATEGORY BLOCKS -->
         <div class="fleet-cards-list" id="capacity-block-grid">
           
           <!-- Block 1: Baseload -->
@@ -724,6 +753,53 @@
           </div>
 
         </div>
+
+        <!-- ===================================================================
+             EXTENSIVE PHILIPPINE POWER PLANT FLEET DIRECTORY
+             =================================================================== -->
+        <div class="card fleet-directory-card" style="margin-top: 10px; border-top: 3px solid #38BDF8;">
+          <div class="card-mini-header" style="flex-wrap: wrap; gap: 4px;">
+            <div>
+              <h2 class="card-mini-title">🇵🇭 Philippine Power Plant Fleet Directory</h2>
+              <div style="font-size: 9px; color: #64748B; font-weight: 600;">Verified Generation Assets, Reserve Providers & HVDC Highways</div>
+            </div>
+            <span id="fleet-count-badge" class="badge badge-blue">40+ Power Plants</span>
+          </div>
+
+          <!-- Fleet Search & Filter Controls -->
+          <div class="fleet-filter-section">
+            <div class="fleet-search-wrap">
+              <input type="text" id="fleet-search-input" class="fleet-search-input" placeholder="🔍 Search plant name, owner, location, or ERC docket..." />
+              <button id="btn-fleet-search-clear" class="btn-search-clear" title="Clear search">&times;</button>
+            </div>
+
+            <!-- Region Filter Chips -->
+            <div class="fleet-filter-chips-row">
+              <button class="btn-fleet-chip active" data-fleet-region="all">🇵🇭 All Grids</button>
+              <button class="btn-fleet-chip" data-fleet-region="luzon">🏝️ Luzon</button>
+              <button class="btn-fleet-chip" data-fleet-region="visayas">🏝️ Visayas</button>
+              <button class="btn-fleet-chip" data-fleet-region="mindanao">🏝️ Mindanao</button>
+              <button class="btn-fleet-chip" data-fleet-region="hvdc">⚡ HVDC Links</button>
+            </div>
+
+            <!-- Tech / Fuel Category Filter Chips -->
+            <div class="fleet-filter-chips-row tech-chips-row">
+              <button class="btn-tech-chip active" data-tech="all">All Types</button>
+              <button class="btn-tech-chip" data-tech="coal">🏭 Supercritical / Coal</button>
+              <button class="btn-tech-chip" data-tech="gas">🔥 CCGT Gas / LNG</button>
+              <button class="btn-tech-chip" data-tech="hydro">💧 Hydro & Pumped</button>
+              <button class="btn-tech-chip" data-tech="geo">🌋 Geothermal</button>
+              <button class="btn-tech-chip" data-tech="bess">🔋 BESS FFR</button>
+              <button class="btn-tech-chip" data-tech="peaker">🚢 Diesel Peakers</button>
+            </div>
+          </div>
+
+          <!-- Dynamic Fleet Directory Grid -->
+          <div id="fleet-directory-grid" class="fleet-directory-grid">
+            <!-- Dynamically populated in app.js -->
+          </div>
+        </div>
+
       </section>
 
       <!-- ===================================================================
@@ -757,22 +833,22 @@
 
             <div class="metric-box">
               <div class="metric-label">New Total Bill</div>
-              <div id="bill-total-amount" class="metric-value" style="font-size: 20px;">₱2,320.00</div>
-              <div id="bill-base-amount" class="metric-sub">Base: ₱2,320.00 (@ ₱11.60/kWh)</div>
+              <div id="bill-total-amount" class="metric-value" style="font-size: 20px;">₱2,357.64</div>
+              <div id="bill-base-amount" class="metric-sub">Base: ₱2,357.64 (@ ₱11.7882/kWh)</div>
             </div>
           </div>
 
           <div class="grid-2" style="margin-bottom: 12px; gap: 8px;">
             <div class="metric-box">
               <div class="metric-label">Effective Tariff</div>
-              <div id="bill-effective-rate" class="metric-value" style="color: #0284c7; font-size: 16px;">₱11.6000 / kWh</div>
+              <div id="bill-effective-rate" class="metric-value" style="color: #0284c7; font-size: 16px;">₱11.7882 / kWh</div>
               <div id="bill-rate-diff" class="metric-sub">+₱0.0000/kWh surge</div>
             </div>
 
             <div class="metric-box" style="background: #f5f7ff; border-color: #e0e7ff;">
               <div class="metric-label" style="color: #4338ca;">Live AS Reserve Charge</div>
-              <div id="bill-as-rate" class="metric-value" style="color: #4f46e5; font-size: 16px;">₱0.1420 / kWh</div>
-              <div id="bill-as-monthly" class="metric-sub">₱28.40/mo for 200 kWh</div>
+              <div id="bill-as-rate" class="metric-value" style="color: #4f46e5; font-size: 16px;">₱0.4850 / kWh</div>
+              <div id="bill-as-monthly" class="metric-sub">₱97.00/mo for 200 kWh</div>
             </div>
           </div>
 
@@ -791,33 +867,33 @@
                 <tbody>
                   <tr>
                     <td><strong>WESM Generation</strong></td>
-                    <td>₱6.5500/kWh</td>
-                    <td id="table-gen-rate" style="font-family: var(--font-mono);">₱6.5500/kWh</td>
-                    <td id="table-gen-monthly" style="font-family: var(--font-mono);">₱1,310.00</td>
+                    <td>₱6.8900/kWh</td>
+                    <td id="table-gen-rate" style="font-family: var(--font-mono);">₱6.8900/kWh</td>
+                    <td id="table-gen-monthly" style="font-family: var(--font-mono);">₱1,378.00</td>
                   </tr>
                   <tr>
                     <td><strong>AS Reserve Surcharge</strong></td>
-                    <td>₱0.1420/kWh</td>
-                    <td id="table-as-rate" style="font-family: var(--font-mono); color: #4f46e5;">₱0.1420/kWh</td>
-                    <td id="table-as-monthly" style="font-family: var(--font-mono); color: #4f46e5;">₱28.40</td>
+                    <td>₱0.4850/kWh</td>
+                    <td id="table-as-rate" style="font-family: var(--font-mono); color: #4f46e5;">₱0.4850/kWh</td>
+                    <td id="table-as-monthly" style="font-family: var(--font-mono); color: #4f46e5;">₱97.00</td>
                   </tr>
                   <tr>
                     <td><strong>Distribution (Meralco)</strong></td>
-                    <td>₱3.6500/kWh</td>
-                    <td>₱3.6500/kWh</td>
-                    <td>₱730.00</td>
+                    <td>₱2.8500/kWh</td>
+                    <td>₱2.8500/kWh</td>
+                    <td>₱570.00</td>
                   </tr>
                   <tr>
                     <td><strong>VAT & Taxes (12%)</strong></td>
-                    <td>₱1.2580/kWh</td>
-                    <td id="table-tax-rate">₱1.2580/kWh</td>
-                    <td id="table-tax-monthly">₱251.60</td>
+                    <td>₱1.1082/kWh</td>
+                    <td id="table-tax-rate">₱1.1082/kWh</td>
+                    <td id="table-tax-monthly">₱221.64</td>
                   </tr>
                   <tr class="bill-total-row">
                     <td><strong>TOTAL ALL-IN TARIFF</strong></td>
-                    <td>₱11.6000/kWh</td>
-                    <td id="table-total-rate" style="color: #e11d48; font-weight: 800;">₱11.6000/kWh</td>
-                    <td id="table-total-monthly" style="color: #e11d48; font-weight: 800;">₱2,320.00</td>
+                    <td>₱11.7882/kWh</td>
+                    <td id="table-total-rate" style="color: #e11d48; font-weight: 800;">₱11.7882/kWh</td>
+                    <td id="table-total-monthly" style="color: #e11d48; font-weight: 800;">₱2,357.64</td>
                   </tr>
                 </tbody>
               </table>
